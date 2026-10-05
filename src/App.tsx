@@ -4,18 +4,29 @@ import PageContainer from './components/PageContainer'
 import TaskList from './components/TaskList'
 import TaskStats from './components/TaskStats'
 import TaskForm from './components/TaskForm'
+import SearchBar from './components/SearchBar'
 import { mockTasks } from './data/mockTasks'
 import { loadTasks, saveTasks } from './lib/storage'
 import type { Task, TaskDraft } from './types/task'
 
 export default function App() {
   // 惰性初始化：传函数进去，localStorage 只在首次渲染读一次。
-  // 写成 useState(loadTasks() ?? mockTasks) 的话，每次渲染都会读一遍磁盘。
   const [tasks, setTasks] = useState<Task[]>(() => loadTasks() ?? mockTasks)
   const [showForm, setShowForm] = useState(false)
+  const [keyword, setKeyword] = useState('')
+
+  // 派生值：直接在渲染时算，不用 state + effect（第 07 章的规则）
+  const visibleTasks = keyword.trim()
+    ? tasks.filter((task) => {
+        const kw = keyword.trim().toLowerCase()
+        return (
+          task.title.toLowerCase().includes(kw) ||
+          task.description.toLowerCase().includes(kw)
+        )
+      })
+    : tasks
 
   // effect 1：tasks 变了就写回 localStorage。
-  // 这是典型的"连接外部系统"，正是 useEffect 该干的事。
   useEffect(() => {
     saveTasks(tasks)
   }, [tasks])
@@ -24,10 +35,6 @@ export default function App() {
   const pendingCount = tasks.filter((t) => t.status !== 'done').length
   useEffect(() => {
     document.title = pendingCount > 0 ? `(${pendingCount}) TaskFlow` : 'TaskFlow'
-
-    // 清理：组件卸载时恢复标题。
-    // 在这个 App 里 App 永远不卸载，看起来没必要；但养成"占用了就还回去"的习惯，
-    // 等这段逻辑被挪进某个会卸载的页面组件时，你会庆幸自己写了。
     return () => {
       document.title = 'TaskFlow'
     }
@@ -96,9 +103,11 @@ export default function App() {
           </div>
         )}
 
+        <SearchBar value={keyword} onChange={setKeyword} />
+
         <TaskStats tasks={tasks} />
         <TaskList
-          tasks={tasks}
+          tasks={visibleTasks}
           onToggle={handleToggle}
           onDelete={handleDelete}
           onUpdate={handleUpdate}
