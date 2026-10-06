@@ -1,4 +1,5 @@
 import { memo, useState } from 'react'
+import { Link } from 'react-router'
 import type { Task } from '../types/task'
 import { PRIORITY_META, STATUS_META } from '../types/task'
 import { useClickOutside } from '../hooks/useClickOutside'
@@ -36,14 +37,17 @@ const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
 
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
-          <h3
-            className={
-              isDone
-                ? 'font-medium text-slate-400 line-through dark:text-slate-500'
-                : 'font-medium text-slate-800 dark:text-slate-100'
-            }
-          >
-            {task.title}
+          <h3 className="min-w-0">
+            <Link
+              to={`/tasks/${task.id}`}
+              className={
+                isDone
+                  ? 'font-medium text-slate-400 line-through hover:underline dark:text-slate-500'
+                  : 'font-medium text-slate-800 hover:text-blue-600 hover:underline dark:text-slate-100 dark:hover:text-blue-400'
+              }
+            >
+              {task.title}
+            </Link>
           </h3>
 
           <div className="flex shrink-0 items-center gap-1">
