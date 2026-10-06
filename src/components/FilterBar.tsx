@@ -1,17 +1,18 @@
 import { memo } from 'react'
-import type { TaskFilters, SortBy } from '../types/filter'
+import type { SortBy, TaskFilters } from '../types/filter'
 import { DEFAULT_FILTERS, SORT_LABELS } from '../types/filter'
 import { PRIORITY_META, STATUS_META } from '../types/task'
+import { useUIStore } from '../store/uiStore'
 
-interface FilterBarProps {
-  filters: TaskFilters
-  onChange: (filters: TaskFilters) => void
-}
+// memo 包裹：它不再有 props，列表刷新时不会被带着重渲染；
+// 只有它订阅的 filters 变了，它才会更新
+const FilterBar = memo(function FilterBar() {
+  const filters = useUIStore((s) => s.filters)
+  const setFilters = useUIStore((s) => s.setFilters)
+  const resetFilters = useUIStore((s) => s.resetFilters)
 
-// memo 包裹：filters 和 onChange 都稳定时，列表刷新不会带着它一起重渲染
-const FilterBar = memo(function FilterBar({ filters, onChange }: FilterBarProps) {
   function update<K extends keyof TaskFilters>(key: K, value: TaskFilters[K]) {
-    onChange({ ...filters, [key]: value })
+    setFilters({ ...filters, [key]: value })
   }
 
   const isDefault =
@@ -84,7 +85,7 @@ const FilterBar = memo(function FilterBar({ filters, onChange }: FilterBarProps)
       {!isDefault && (
         <button
           type="button"
-          onClick={() => onChange(DEFAULT_FILTERS)}
+          onClick={resetFilters}
           className="ml-auto rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
         >
           重置筛选

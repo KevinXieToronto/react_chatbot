@@ -1,16 +1,15 @@
-import type { Task } from '../types/task'
+import { memo } from 'react'
+import { useTaskStore } from '../store/taskStore'
 
-interface TaskStatsProps {
-  tasks: Task[]
-}
+const TaskStats = memo(function TaskStats() {
+  // 直接订阅 tasks。TaskStats 本来就要跟着任务变化而更新，这没问题。
+  const tasks = useTaskStore((s) => s.tasks)
 
-export default function TaskStats({ tasks }: TaskStatsProps) {
   const total = tasks.length
   const done = tasks.filter((t) => t.status === 'done').length
   const doing = tasks.filter((t) => t.status === 'doing').length
   const highPriority = tasks.filter((t) => t.priority === 'high' && t.status !== 'done').length
 
-  // 注意：左边写成布尔表达式，不要写 {total && ...}
   if (total === 0) return null
 
   return (
@@ -31,4 +30,6 @@ export default function TaskStats({ tasks }: TaskStatsProps) {
       )}
     </div>
   )
-}
+})
+
+export default TaskStats

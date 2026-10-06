@@ -1,21 +1,19 @@
-import { memo, useState } from 'react'
-import type { Task, TaskDraft } from '../types/task'
+import { memo } from 'react'
+import type { Task } from '../types/task'
 import TaskCard from './TaskCard'
 import TaskForm from './TaskForm'
 import EmptyState from './EmptyState'
+import { useTaskStore } from '../store/taskStore'
+import { useUIStore } from '../store/uiStore'
 
 interface TaskListProps {
   tasks: Task[]
-  onToggle: (id: string) => void
-  onDelete: (id: string) => void
-  /** 保存编辑结果 */
-  onUpdate: (id: string, draft: TaskDraft) => void
 }
 
-const TaskList = memo(function TaskList({ tasks, onToggle, onDelete, onUpdate }: TaskListProps) {
-  // 纯 UI 状态：当前正在编辑哪一条。null 表示没有。
-  // 放在这里而不是 App，因为只有 TaskList 需要读它。
-  const [editingId, setEditingId] = useState<string | null>(null)
+const TaskList = memo(function TaskList({ tasks }: TaskListProps) {
+  const editingId = useUIStore((s) => s.editingId)
+  const setEditingId = useUIStore((s) => s.setEditingId)
+  const updateTask = useTaskStore((s) => s.updateTask)
 
   if (tasks.length === 0) {
     return <EmptyState title="没有符合条件的任务" description="试试调整筛选条件或新建一个" />
@@ -27,7 +25,6 @@ const TaskList = memo(function TaskList({ tasks, onToggle, onDelete, onUpdate }:
         task.id === editingId ? (
           <TaskForm
             key={task.id}
-            // 把 Task 拆成 TaskDraft（去掉 id 和 createdAt）
             initialValue={{
               title: task.title,
               description: task.description,
@@ -36,19 +33,13 @@ const TaskList = memo(function TaskList({ tasks, onToggle, onDelete, onUpdate }:
             }}
             submitText="保存"
             onSubmit={(draft) => {
-              onUpdate(task.id, draft)
+              updateTask(task.id, draft)
               setEditingId(null)
             }}
             onCancel={() => setEditingId(null)}
           />
         ) : (
-          <TaskCard
-            key={task.id}
-            task={task}
-            onToggle={onToggle}
-            onDelete={onDelete}
-            onEdit={setEditingId}
-          />
+          <TaskCard key={task.id} task={task} />
         ),
       )}
     </div>

@@ -3,15 +3,20 @@ import type { Task } from '../types/task'
 import { PRIORITY_META, STATUS_META } from '../types/task'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { useKeyPress } from '../hooks/useKeyPress'
+import { useTaskStore } from '../store/taskStore'
+import { useUIStore } from '../store/uiStore'
 
 interface TaskCardProps {
   task: Task
-  onToggle: (id: string) => void
-  onDelete: (id: string) => void
-  onEdit: (id: string) => void
 }
 
-const TaskCard = memo(function TaskCard({ task, onToggle, onDelete, onEdit }: TaskCardProps) {
+const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
+  // 直接从 store 拿 action —— 不再需要父组件层层传 props。
+  // action 的引用永远不变，所以这几行不会造成任何多余的重渲染。
+  const toggleTask = useTaskStore((s) => s.toggleTask)
+  const deleteTask = useTaskStore((s) => s.deleteTask)
+  const setEditingId = useUIStore((s) => s.setEditingId)
+
   const priority = PRIORITY_META[task.priority]
   const status = STATUS_META[task.status]
   const isDone = task.status === 'done'
@@ -25,7 +30,7 @@ const TaskCard = memo(function TaskCard({ task, onToggle, onDelete, onEdit }: Ta
       <input
         type="checkbox"
         checked={isDone}
-        onChange={() => onToggle(task.id)}
+        onChange={() => toggleTask(task.id)}
         className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-blue-600"
       />
 
@@ -65,7 +70,7 @@ const TaskCard = memo(function TaskCard({ task, onToggle, onDelete, onEdit }: Ta
                   <button
                     type="button"
                     onClick={() => {
-                      onEdit(task.id)
+                      setEditingId(task.id)
                       setMenuOpen(false)
                     }}
                     className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -75,7 +80,7 @@ const TaskCard = memo(function TaskCard({ task, onToggle, onDelete, onEdit }: Ta
                   <button
                     type="button"
                     onClick={() => {
-                      onDelete(task.id)
+                      deleteTask(task.id)
                       setMenuOpen(false)
                     }}
                     className="block w-full px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950"
