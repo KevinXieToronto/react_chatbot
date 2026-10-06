@@ -16,7 +16,8 @@ export interface Task {
 }
 
 /** 新建任务时的输入：还没有 id 和 createdAt */
-export type TaskDraft = Omit<Task, 'id' | 'createdAt'>
+// 从 Zod schema 推导，保证校验规则和类型永远一致
+export type { TaskDraftInput as TaskDraft } from './schemas'
 
 /** 优先级对应的中文文案和颜色（Tailwind class） */
 export const PRIORITY_META: Record<Priority, { label: string; className: string }> = {
