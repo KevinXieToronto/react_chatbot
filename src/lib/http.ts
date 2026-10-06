@@ -14,7 +14,8 @@ export class ApiError extends Error {
 }
 
 export const http = axios.create({
-  baseURL: '/api',
+  // 开发环境是 /api（走 Vite proxy），生产环境是 .env.production 里的完整地址
+  baseURL: import.meta.env.VITE_API_BASE_URL,
   timeout: 10_000,
   headers: { 'Content-Type': 'application/json' },
 })
