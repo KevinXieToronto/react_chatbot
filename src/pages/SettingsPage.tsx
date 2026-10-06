@@ -1,12 +1,12 @@
 import { useTheme } from '../contexts/ThemeContext'
+import { useTaskFilters } from '../hooks/useTaskFilters'
 import { useTaskStore } from '../store/taskStore'
-import { useUIStore } from '../store/uiStore'
 
 export default function SettingsPage() {
   const { mode, resolved } = useTheme()
   const tasks = useTaskStore((s) => s.tasks)
   const resetTasks = useTaskStore((s) => s.resetTasks)
-  const resetFilters = useUIStore((s) => s.resetFilters)
+  const { reset: resetFilters } = useTaskFilters()
 
   function handleExport() {
     // 生成一个 JSON 文件让浏览器下载

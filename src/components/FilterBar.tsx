@@ -1,25 +1,15 @@
 import { memo } from 'react'
-import type { SortBy, TaskFilters } from '../types/filter'
-import { DEFAULT_FILTERS, SORT_LABELS } from '../types/filter'
+import type { TaskFilters, SortBy } from '../types/filter'
+import { SORT_LABELS } from '../types/filter'
 import { PRIORITY_META, STATUS_META } from '../types/task'
-import { useUIStore } from '../store/uiStore'
+import { useTaskFilters } from '../hooks/useTaskFilters'
 
-// memo 包裹：它不再有 props，列表刷新时不会被带着重渲染；
-// 只有它订阅的 filters 变了，它才会更新
 const FilterBar = memo(function FilterBar() {
-  const filters = useUIStore((s) => s.filters)
-  const setFilters = useUIStore((s) => s.setFilters)
-  const resetFilters = useUIStore((s) => s.resetFilters)
+  const { filters, setFilters, reset, isDefault } = useTaskFilters()
 
   function update<K extends keyof TaskFilters>(key: K, value: TaskFilters[K]) {
     setFilters({ ...filters, [key]: value })
   }
-
-  const isDefault =
-    filters.status === DEFAULT_FILTERS.status &&
-    filters.priority === DEFAULT_FILTERS.priority &&
-    filters.sortBy === DEFAULT_FILTERS.sortBy &&
-    filters.sortOrder === DEFAULT_FILTERS.sortOrder
 
   const selectClass =
     'rounded border border-slate-300 bg-white px-2 py-1 text-sm outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100'
@@ -85,10 +75,10 @@ const FilterBar = memo(function FilterBar() {
       {!isDefault && (
         <button
           type="button"
-          onClick={resetFilters}
+          onClick={reset}
           className="ml-auto rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
         >
-          重置筛选
+          重置
         </button>
       )}
     </div>
