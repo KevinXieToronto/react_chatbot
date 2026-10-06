@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { Task } from '../types/task'
 import { PRIORITY_META, STATUS_META } from '../types/task'
+import { useClickOutside } from '../hooks/useClickOutside'
+import { useKeyPress } from '../hooks/useKeyPress'
 
 interface TaskCardProps {
   task: Task
@@ -14,37 +16,9 @@ export default function TaskCard({ task, onToggle, onDelete, onEdit }: TaskCardP
   const status = STATUS_META[task.status]
   const isDone = task.status === 'done'
 
-  // 菜单开关：界面要跟着变 → 用 state
   const [menuOpen, setMenuOpen] = useState(false)
-  // 菜单容器的 DOM 节点：只在事件里用来做包含判断 → 用 ref
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    // 菜单没开就不用监听，省掉无谓的全局事件
-    if (!menuOpen) return
-
-    function handleClickOutside(e: MouseEvent) {
-      // e.target 的类型是 EventTarget | null，要断言成 Node 才能给 contains 用
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-
-    function handleEscape(e: KeyboardEvent) {
-      if (e.key === 'Escape') setMenuOpen(false)
-    }
-
-    // 用 mousedown 而不是 click：click 在 mouseup 后才触发，
-    // 如果菜单项自己也绑了 click，顺序会打架
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleEscape)
-
-    // 清理：菜单关闭或组件卸载时移除监听。不写就会不断叠加监听器。
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleEscape)
-    }
-  }, [menuOpen])
+  const menuRef = useClickOutside<HTMLDivElement>(() => setMenuOpen(false), menuOpen)
+  useKeyPress('Escape', () => setMenuOpen(false), { enableInInput: true })
 
   return (
     <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">

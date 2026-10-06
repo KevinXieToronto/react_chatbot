@@ -6,32 +6,29 @@ import TaskStats from './components/TaskStats'
 import TaskForm from './components/TaskForm'
 import SearchBar from './components/SearchBar'
 import { mockTasks } from './data/mockTasks'
-import { loadTasks, saveTasks } from './lib/storage'
+import { useLocalStorage } from './hooks/useLocalStorage'
+import { useDebounce } from './hooks/useDebounce'
 import type { Task, TaskDraft } from './types/task'
 
 export default function App() {
-  // 惰性初始化：传函数进去，localStorage 只在首次渲染读一次。
-  const [tasks, setTasks] = useState<Task[]>(() => loadTasks() ?? mockTasks)
+  // 一行替代了原来的 useState(loadTasks) + useEffect(saveTasks)
+  const [tasks, setTasks] = useLocalStorage<Task[]>('taskflow:tasks', mockTasks)
+
   const [showForm, setShowForm] = useState(false)
   const [keyword, setKeyword] = useState('')
 
-  // 派生值：直接在渲染时算，不用 state + effect（第 07 章的规则）
-  const visibleTasks = keyword.trim()
-    ? tasks.filter((task) => {
-        const kw = keyword.trim().toLowerCase()
-        return (
-          task.title.toLowerCase().includes(kw) ||
-          task.description.toLowerCase().includes(kw)
-        )
-      })
+  // 用户停止输入 300ms 后，debouncedKeyword 才更新
+  const debouncedKeyword = useDebounce(keyword, 300)
+  const isSearchPending = keyword !== debouncedKeyword
+
+  const kw = debouncedKeyword.trim().toLowerCase()
+  const visibleTasks = kw
+    ? tasks.filter(
+        (task) =>
+          task.title.toLowerCase().includes(kw) || task.description.toLowerCase().includes(kw),
+      )
     : tasks
 
-  // effect 1：tasks 变了就写回 localStorage。
-  useEffect(() => {
-    saveTasks(tasks)
-  }, [tasks])
-
-  // effect 2：同步浏览器标签页标题。
   const pendingCount = tasks.filter((t) => t.status !== 'done').length
   useEffect(() => {
     document.title = pendingCount > 0 ? `(${pendingCount}) TaskFlow` : 'TaskFlow'
@@ -68,11 +65,6 @@ export default function App() {
     setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, ...draft } : task)))
   }
 
-  /** 清空所有数据，恢复示例任务 */
-  function handleReset() {
-    setTasks(mockTasks)
-  }
-
   return (
     <div className="min-h-full bg-slate-50">
       <Header taskCount={tasks.length} />
@@ -82,7 +74,7 @@ export default function App() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={handleReset}
+              onClick={() => setTasks(mockTasks)}
               className="rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-200"
             >
               重置数据
@@ -103,7 +95,13 @@ export default function App() {
           </div>
         )}
 
-        <SearchBar value={keyword} onChange={setKeyword} />
+        <SearchBar value={keyword} onChange={setKeyword} pending={isSearchPending} />
+
+        {kw && (
+          <p className="mb-3 text-sm text-slate-500">
+            匹配到 <b className="text-slate-700">{visibleTasks.length}</b> 条
+          </p>
+        )}
 
         <TaskStats tasks={tasks} />
         <TaskList
