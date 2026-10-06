@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import PageLoading from '../components/PageLoading'
 import { PRIORITY_META, STATUS_META } from '../types/task'
 import { useTaskStore } from '../store/taskStore'
 
@@ -12,6 +14,16 @@ export default function TaskDetailPage() {
   const task = useTaskStore((s) => s.tasks.find((t) => t.id === id))
   const toggleTask = useTaskStore((s) => s.toggleTask)
   const deleteTask = useTaskStore((s) => s.deleteTask)
+  const isLoading = useTaskStore((s) => s.isLoading)
+  const tasks = useTaskStore((s) => s.tasks)
+  const fetchTasks = useTaskStore((s) => s.fetchTasks)
+
+  // 直接访问详情页（比如从别人发的链接进来）时 store 里还没数据
+  useEffect(() => {
+    if (tasks.length === 0) void fetchTasks()
+  }, [tasks.length, fetchTasks])
+
+  if (isLoading) return <PageLoading />
 
   // 任务不存在（id 打错了、或者已被删除）
   if (!task) {

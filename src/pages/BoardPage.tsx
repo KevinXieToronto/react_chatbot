@@ -3,6 +3,8 @@ import TaskList from '../components/TaskList'
 import TaskForm from '../components/TaskForm'
 import SearchBar from '../components/SearchBar'
 import FilterBar from '../components/FilterBar'
+import ErrorBanner from '../components/ErrorBanner'
+import PageLoading from '../components/PageLoading'
 import TaskStats from '../components/TaskStats'
 import { useDebounce } from '../hooks/useDebounce'
 import { useTaskFilters } from '../hooks/useTaskFilters'
@@ -15,6 +17,9 @@ export default function BoardPage() {
   const addTask = useTaskStore((s) => s.addTask)
   const completeAll = useTaskStore((s) => s.completeAll)
   const clearCompleted = useTaskStore((s) => s.clearCompleted)
+  const isLoading = useTaskStore((s) => s.isLoading)
+  const error = useTaskStore((s) => s.error)
+  const fetchTasks = useTaskStore((s) => s.fetchTasks)
 
   const showForm = useUIStore((s) => s.showForm)
   const toggleForm = useUIStore((s) => s.toggleForm)
@@ -67,6 +72,13 @@ export default function BoardPage() {
   const pendingCount = tasks.filter((t) => t.status !== 'done').length
   const doneCount = tasks.length - pendingCount
 
+  // 进页面拉一次数据。
+  // ⚠️ StrictMode 下这会请求两次 —— 看 Network 面板能看到。
+  //    第 16 章用 TanStack Query 后这个问题自动消失（它会去重）。
+  useEffect(() => {
+    void fetchTasks()
+  }, [fetchTasks])
+
   useEffect(() => {
     document.title = pendingCount > 0 ? `(${pendingCount}) TaskFlow` : 'TaskFlow'
     // 离开看板页时恢复标题，否则其他页面也会显示未完成数
@@ -115,6 +127,8 @@ export default function BoardPage() {
         </div>
       )}
 
+      {error && <ErrorBanner message={error} onRetry={fetchTasks} />}
+
       <SearchBar
         value={draftKeyword}
         onChange={setDraftKeyword}
@@ -131,9 +145,13 @@ export default function BoardPage() {
       )}
 
       {/* isPending 时给列表加个半透明，提示"正在更新" */}
-      <div className={isPending ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
-        <TaskList tasks={visibleTasks} />
-      </div>
+      {isLoading ? (
+        <PageLoading />
+      ) : (
+        <div className={isPending ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+          <TaskList tasks={visibleTasks} />
+        </div>
+      )}
     </>
   )
 }

@@ -5,7 +5,6 @@ import { useTaskStore } from '../store/taskStore'
 export default function SettingsPage() {
   const { mode, resolved } = useTheme()
   const tasks = useTaskStore((s) => s.tasks)
-  const resetTasks = useTaskStore((s) => s.resetTasks)
   const { reset: resetFilters } = useTaskFilters()
 
   function handleExport() {
@@ -51,14 +50,10 @@ export default function SettingsPage() {
           >
             重置筛选条件
           </button>
-          <button
-            type="button"
-            onClick={resetTasks}
-            className="rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950"
-          >
-            重置为示例数据
-          </button>
         </div>
+        <p className="mt-3 text-xs text-slate-400">
+          数据现在存在服务端（server/db.json）。要重置请直接编辑那个文件后重启后端。
+        </p>
       </div>
     </>
   )
