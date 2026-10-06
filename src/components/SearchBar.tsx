@@ -33,7 +33,7 @@ export default function SearchBar({ value, onChange, pending = false }: SearchBa
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="搜索任务…"
-        className="w-full rounded-md border border-slate-300 bg-white py-2 pl-3 pr-20 text-sm outline-none focus:border-blue-500"
+        className="w-full rounded-md border border-slate-300 bg-white py-2 pl-3 pr-20 text-sm outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
       />
 
       <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
@@ -45,12 +45,12 @@ export default function SearchBar({ value, onChange, pending = false }: SearchBa
               onChange('')
               inputRef.current?.focus()
             }}
-            className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100"
+            className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-600"
           >
             清除
           </button>
         ) : (
-          <kbd className="pointer-events-none rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs text-slate-400">
+          <kbd className="pointer-events-none rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs text-slate-400 dark:border-slate-600 dark:bg-slate-800">
             /
           </kbd>
         )}

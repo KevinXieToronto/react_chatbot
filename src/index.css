@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
-/* 全局基础样式：让页面铺满、用系统字体 */
+/* Tailwind 4 的写法：让 dark: 前缀改为跟随 <html class="dark">
+   （Tailwind 3 是在 tailwind.config.js 里写 darkMode: 'class'，v4 没有那个文件了） */
+@custom-variant dark (&:where(.dark, .dark *));
+
 html,
 body,
 #root {

@@ -20,6 +20,9 @@ const EMPTY_FORM: TaskDraft = {
 
 const MAX_TITLE = 50
 
+const inputClass =
+  'w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100'
+
 export default function TaskForm({
   onSubmit,
   onCancel,
@@ -49,11 +52,14 @@ export default function TaskForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-3 rounded-lg border border-blue-300 bg-white p-4 shadow-sm"
+      className="space-y-3 rounded-lg border border-blue-300 bg-white p-4 shadow-sm dark:border-blue-800 dark:bg-slate-800"
     >
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <label htmlFor={`${uid}-title`} className="text-sm font-medium text-slate-700">
+          <label
+            htmlFor={`${uid}-title`}
+            className="text-sm font-medium text-slate-700 dark:text-slate-200"
+          >
             标题 <span className="text-rose-500">*</span>
           </label>
           <span
@@ -71,12 +77,15 @@ export default function TaskForm({
           onChange={(e) => updateField('title', e.target.value.slice(0, MAX_TITLE))}
           placeholder="要做什么？"
           autoFocus
-          className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          className={inputClass}
         />
       </div>
 
       <div>
-        <label htmlFor={`${uid}-desc`} className="mb-1 block text-sm font-medium text-slate-700">
+        <label
+          htmlFor={`${uid}-desc`}
+          className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200"
+        >
           描述
         </label>
         <textarea
@@ -85,20 +94,23 @@ export default function TaskForm({
           onChange={(e) => updateField('description', e.target.value)}
           rows={2}
           placeholder="补充说明（可选）"
-          className="w-full resize-none rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          className={`${inputClass} resize-none`}
         />
       </div>
 
       <div className="flex gap-3">
         <div className="flex-1">
-          <label htmlFor={`${uid}-priority`} className="mb-1 block text-sm font-medium text-slate-700">
+          <label
+            htmlFor={`${uid}-priority`}
+            className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200"
+          >
             优先级
           </label>
           <select
             id={`${uid}-priority`}
             value={form.priority}
             onChange={(e) => updateField('priority', e.target.value as Priority)}
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+            className={inputClass}
           >
             {Object.entries(PRIORITY_META).map(([value, meta]) => (
               <option key={value} value={value}>
@@ -109,10 +121,15 @@ export default function TaskForm({
         </div>
 
         <div className="flex-1">
-          <span className="mb-1 block text-sm font-medium text-slate-700">状态</span>
+          <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
+            状态
+          </span>
           <div className="flex h-[38px] items-center gap-4">
             {Object.entries(STATUS_META).map(([value, meta]) => (
-              <label key={value} className="flex cursor-pointer items-center gap-1 text-sm">
+              <label
+                key={value}
+                className="flex cursor-pointer items-center gap-1 text-sm dark:text-slate-200"
+              >
                 <input
                   type="radio"
                   name="status"
@@ -132,7 +149,7 @@ export default function TaskForm({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+          className="rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
         >
           取消
         </button>

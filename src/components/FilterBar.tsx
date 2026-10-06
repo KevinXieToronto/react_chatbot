@@ -21,11 +21,11 @@ const FilterBar = memo(function FilterBar({ filters, onChange }: FilterBarProps)
     filters.sortOrder === DEFAULT_FILTERS.sortOrder
 
   const selectClass =
-    'rounded border border-slate-300 bg-white px-2 py-1 text-sm outline-none focus:border-blue-500'
+    'rounded border border-slate-300 bg-white px-2 py-1 text-sm outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100'
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-3">
-      <label className="text-sm text-slate-600">
+    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800">
+      <label className="text-sm text-slate-600 dark:text-slate-300">
         状态
         <select
           value={filters.status}
@@ -41,7 +41,7 @@ const FilterBar = memo(function FilterBar({ filters, onChange }: FilterBarProps)
         </select>
       </label>
 
-      <label className="text-sm text-slate-600">
+      <label className="text-sm text-slate-600 dark:text-slate-300">
         优先级
         <select
           value={filters.priority}
@@ -57,7 +57,7 @@ const FilterBar = memo(function FilterBar({ filters, onChange }: FilterBarProps)
         </select>
       </label>
 
-      <label className="text-sm text-slate-600">
+      <label className="text-sm text-slate-600 dark:text-slate-300">
         排序
         <select
           value={filters.sortBy}
@@ -76,7 +76,7 @@ const FilterBar = memo(function FilterBar({ filters, onChange }: FilterBarProps)
         type="button"
         onClick={() => update('sortOrder', filters.sortOrder === 'asc' ? 'desc' : 'asc')}
         title={filters.sortOrder === 'asc' ? '升序' : '降序'}
-        className="rounded border border-slate-300 bg-white px-2 py-1 text-sm hover:bg-slate-50"
+        className="rounded border border-slate-300 bg-white px-2 py-1 text-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
       >
         {filters.sortOrder === 'asc' ? '↑' : '↓'}
       </button>
@@ -85,7 +85,7 @@ const FilterBar = memo(function FilterBar({ filters, onChange }: FilterBarProps)
         <button
           type="button"
           onClick={() => onChange(DEFAULT_FILTERS)}
-          className="ml-auto rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
+          className="ml-auto rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
         >
           重置筛选
         </button>

@@ -7,15 +7,16 @@ import TaskForm from './components/TaskForm'
 import SearchBar from './components/SearchBar'
 import FilterBar from './components/FilterBar'
 import { mockTasks } from './data/mockTasks'
-import { useLocalStorage } from './hooks/useLocalStorage'
 import { useDebounce } from './hooks/useDebounce'
+import { useTasks } from './features/tasks/useTasks'
 import { processTasks } from './lib/taskUtils'
 import { DEFAULT_FILTERS } from './types/filter'
 import type { TaskFilters } from './types/filter'
 import type { Task, TaskDraft } from './types/task'
 
 export default function App() {
-  const [tasks, setTasks] = useLocalStorage<Task[]>('taskflow:tasks', mockTasks)
+  const { tasks, dispatch } = useTasks()
+
   const [showForm, setShowForm] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [filters, setFilters] = useState<TaskFilters>(DEFAULT_FILTERS)
@@ -23,58 +24,36 @@ export default function App() {
   const debouncedKeyword = useDebounce(keyword, 300)
   const isSearchPending = keyword !== debouncedKeyword
 
-  // useMemo 1：缓存筛选排序的结果。
-  // 现在数据量小，这个 memo 主要价值是"保持 visibleTasks 引用稳定" ——
-  // 否则每次渲染都是新数组，memo 包裹的 TaskList 会白白重渲染。
   const visibleTasks = useMemo(
     () => processTasks(tasks, debouncedKeyword, filters),
     [tasks, debouncedKeyword, filters],
   )
 
-  // useCallback：这三个函数要传给 memo 包裹的 TaskList / TaskCard，
-  // 必须保持引用稳定，否则 memo 完全失效。
-  // 注意依赖数组都是空的 —— 因为用了函数式更新，不需要读 tasks。
-  const handleToggle = useCallback(
-    (id: string) => {
-      setTasks((prev) =>
-        prev.map((task) =>
-          task.id === id
-            ? { ...task, status: task.status === 'done' ? 'todo' : 'done' }
-            : task,
-        ),
-      )
-    },
-    [setTasks],
-  )
-
-  const handleDelete = useCallback(
-    (id: string) => {
-      setTasks((prev) => prev.filter((task) => task.id !== id))
-    },
-    [setTasks],
-  )
-
+  // dispatch 引用永久稳定，所以这些 useCallback 的依赖是稳定的
+  const handleToggle = useCallback((id: string) => dispatch({ type: 'toggle', id }), [dispatch])
+  const handleDelete = useCallback((id: string) => dispatch({ type: 'delete', id }), [dispatch])
   const handleUpdate = useCallback(
-    (id: string, draft: TaskDraft) => {
-      setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, ...draft } : task)))
-    },
-    [setTasks],
+    (id: string, draft: TaskDraft) => dispatch({ type: 'update', id, draft }),
+    [dispatch],
   )
 
   const handleCreate = useCallback(
     (draft: TaskDraft) => {
-      const newTask: Task = {
+      // id 和时间在这里生成 —— 绝不能放进 reducer
+      const task: Task = {
         ...draft,
         id: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
       }
-      setTasks((prev) => [newTask, ...prev])
+      dispatch({ type: 'add', task })
       setShowForm(false)
     },
-    [setTasks],
+    [dispatch],
   )
 
   const pendingCount = tasks.filter((t) => t.status !== 'done').length
+  const doneCount = tasks.length - pendingCount
+
   useEffect(() => {
     document.title = pendingCount > 0 ? `(${pendingCount}) TaskFlow` : 'TaskFlow'
     return () => {
@@ -85,16 +64,34 @@ export default function App() {
   const isFiltering = debouncedKeyword.trim() !== '' || filters !== DEFAULT_FILTERS
 
   return (
-    <div className="min-h-full bg-slate-50">
+    <div className="min-h-full bg-slate-50 dark:bg-slate-900">
       <Header taskCount={tasks.length} />
       <PageContainer>
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-slate-800">我的任务</h1>
-          <div className="flex gap-2">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">我的任务</h1>
+          <div className="flex flex-wrap gap-2">
+            {pendingCount > 0 && (
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'completeAll' })}
+                className="rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                全部完成
+              </button>
+            )}
+            {doneCount > 0 && (
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'clearCompleted' })}
+                className="rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                清除已完成
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setTasks(mockTasks)}
-              className="rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-200"
+              onClick={() => dispatch({ type: 'replaceAll', tasks: mockTasks })}
+              className="rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800"
             >
               重置数据
             </button>
@@ -116,12 +113,12 @@ export default function App() {
 
         <SearchBar value={keyword} onChange={setKeyword} pending={isSearchPending} />
         <FilterBar filters={filters} onChange={setFilters} />
-
         <TaskStats tasks={tasks} />
 
         {isFiltering && (
-          <p className="mb-3 text-sm text-slate-500">
-            显示 <b className="text-slate-700">{visibleTasks.length}</b> / {tasks.length} 条
+          <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+            显示 <b className="text-slate-700 dark:text-slate-200">{visibleTasks.length}</b> /{' '}
+            {tasks.length} 条
           </p>
         )}
 
