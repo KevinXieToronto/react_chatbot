@@ -1,9 +1,9 @@
-import { useTaskStore } from '../store/taskStore'
+import { useTasks } from '../api/taskQueries'
 import { PRIORITY_META, STATUS_META } from '../types/task'
 import type { Priority, Status } from '../types/task'
 
 export default function StatsPage() {
-  const tasks = useTaskStore((s) => s.tasks)
+  const { data: tasks = [] } = useTasks()
 
   const total = tasks.length
   const done = tasks.filter((t) => t.status === 'done').length

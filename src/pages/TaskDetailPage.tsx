@@ -1,31 +1,24 @@
-import { useEffect } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import PageLoading from '../components/PageLoading'
 import { PRIORITY_META, STATUS_META } from '../types/task'
-import { useTaskStore } from '../store/taskStore'
+import { useTask, useUpdateTask, useDeleteTask } from '../api/taskQueries'
+import PageLoading from '../components/PageLoading'
+import ErrorBanner from '../components/ErrorBanner'
 
 export default function TaskDetailPage() {
-  // useParams 的返回值类型是 Record<string, string | undefined>
   const { id } = useParams<{ id: string }>()
-
-  // useNavigate 用于"事件里跳转"，比如删除后回列表
   const navigate = useNavigate()
 
-  const task = useTaskStore((s) => s.tasks.find((t) => t.id === id))
-  const toggleTask = useTaskStore((s) => s.toggleTask)
-  const deleteTask = useTaskStore((s) => s.deleteTask)
-  const isLoading = useTaskStore((s) => s.isLoading)
-  const tasks = useTaskStore((s) => s.tasks)
-  const fetchTasks = useTaskStore((s) => s.fetchTasks)
+  // 单独查这一条。好处：直接打开详情页链接也能工作，不依赖列表先加载过。
+  const { data: task, isPending, isError, error, refetch } = useTask(id)
+  const updateTask = useUpdateTask()
+  const deleteTask = useDeleteTask()
 
-  // 直接访问详情页（比如从别人发的链接进来）时 store 里还没数据
-  useEffect(() => {
-    if (tasks.length === 0) void fetchTasks()
-  }, [tasks.length, fetchTasks])
+  if (isPending) return <PageLoading />
 
-  if (isLoading) return <PageLoading />
+  if (isError) {
+    return <ErrorBanner message={error.message} onRetry={() => void refetch()} />
+  }
 
-  // 任务不存在（id 打错了、或者已被删除）
   if (!task) {
     return (
       <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center dark:border-slate-600 dark:bg-slate-800">
@@ -40,17 +33,24 @@ export default function TaskDetailPage() {
   const priority = PRIORITY_META[task.priority]
   const status = STATUS_META[task.status]
 
+  function handleToggle() {
+    if (!task) return
+    updateTask.mutate({
+      id: task.id,
+      patch: { status: task.status === 'done' ? 'todo' : 'done' },
+    })
+  }
+
   function handleDelete() {
     if (!task) return
-    deleteTask(task.id)
-    // 删完跳回列表。replace: true 表示替换当前历史记录 ——
-    // 这样用户按"后退"不会又回到这个已经不存在的详情页。
-    navigate('/', { replace: true })
+    deleteTask.mutate(task.id, {
+      // 第二个参数可以给单次调用挂回调
+      onSuccess: () => navigate('/', { replace: true }),
+    })
   }
 
   return (
     <article>
-      {/* navigate(-1) 等价于浏览器后退 */}
       <button
         type="button"
         onClick={() => navigate(-1)}
@@ -98,17 +98,19 @@ export default function TaskDetailPage() {
         <div className="mt-6 flex gap-2">
           <button
             type="button"
-            onClick={() => toggleTask(task.id)}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            onClick={handleToggle}
+            disabled={updateTask.isPending}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
           >
             {task.status === 'done' ? '标记为未完成' : '标记为已完成'}
           </button>
           <button
             type="button"
             onClick={handleDelete}
-            className="rounded-md px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950"
+            disabled={deleteTask.isPending}
+            className="rounded-md px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 disabled:opacity-60 dark:hover:bg-rose-950"
           >
-            删除任务
+            {deleteTask.isPending ? '删除中…' : '删除任务'}
           </button>
         </div>
       </div>

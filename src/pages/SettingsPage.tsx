@@ -1,10 +1,10 @@
 import { useTheme } from '../contexts/ThemeContext'
 import { useTaskFilters } from '../hooks/useTaskFilters'
-import { useTaskStore } from '../store/taskStore'
+import { useTasks } from '../api/taskQueries'
 
 export default function SettingsPage() {
   const { mode, resolved } = useTheme()
-  const tasks = useTaskStore((s) => s.tasks)
+  const { data: tasks = [] } = useTasks()
   const { reset: resetFilters } = useTaskFilters()
 
   function handleExport() {

@@ -1,9 +1,9 @@
 import { memo } from 'react'
-import { useTaskStore } from '../store/taskStore'
+import { useTasks } from '../api/taskQueries'
 
 const TaskStats = memo(function TaskStats() {
-  // 直接订阅 tasks。TaskStats 本来就要跟着任务变化而更新，这没问题。
-  const tasks = useTaskStore((s) => s.tasks)
+  // 和 BoardPage 调同一个 useTasks()：queryKey 相同，只会发一个请求。
+  const { data: tasks = [] } = useTasks()
 
   const total = tasks.length
   const done = tasks.filter((t) => t.status === 'done').length

@@ -4,7 +4,7 @@ import type { Task } from '../types/task'
 import { PRIORITY_META, STATUS_META } from '../types/task'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { useKeyPress } from '../hooks/useKeyPress'
-import { useTaskStore } from '../store/taskStore'
+import { useDeleteTask, useUpdateTask } from '../api/taskQueries'
 import { useUIStore } from '../store/uiStore'
 
 interface TaskCardProps {
@@ -12,10 +12,9 @@ interface TaskCardProps {
 }
 
 const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
-  // 直接从 store 拿 action —— 不再需要父组件层层传 props。
-  // action 的引用永远不变，所以这几行不会造成任何多余的重渲染。
-  const toggleTask = useTaskStore((s) => s.toggleTask)
-  const deleteTask = useTaskStore((s) => s.deleteTask)
+  // 直接在卡片里使用 mutation —— 不再需要父组件层层传 props。
+  const updateTask = useUpdateTask()
+  const deleteTask = useDeleteTask()
   const setEditingId = useUIStore((s) => s.setEditingId)
 
   const priority = PRIORITY_META[task.priority]
@@ -31,7 +30,12 @@ const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
       <input
         type="checkbox"
         checked={isDone}
-        onChange={() => toggleTask(task.id)}
+        onChange={() =>
+          updateTask.mutate({
+            id: task.id,
+            patch: { status: task.status === 'done' ? 'todo' : 'done' },
+          })
+        }
         className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-blue-600"
       />
 
@@ -84,7 +88,7 @@ const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
                   <button
                     type="button"
                     onClick={() => {
-                      deleteTask(task.id)
+                      deleteTask.mutate(task.id)
                       setMenuOpen(false)
                     }}
                     className="block w-full px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950"

@@ -3,61 +3,43 @@ import TaskList from '../components/TaskList'
 import TaskForm from '../components/TaskForm'
 import SearchBar from '../components/SearchBar'
 import FilterBar from '../components/FilterBar'
+import TaskStats from '../components/TaskStats'
 import ErrorBanner from '../components/ErrorBanner'
 import PageLoading from '../components/PageLoading'
-import TaskStats from '../components/TaskStats'
 import { useDebounce } from '../hooks/useDebounce'
 import { useTaskFilters } from '../hooks/useTaskFilters'
 import { processTasks } from '../lib/taskUtils'
-import { useTaskStore } from '../store/taskStore'
+import { useTasks, useCreateTask, useBulkUpdate, useBulkDelete } from '../api/taskQueries'
 import { useUIStore } from '../store/uiStore'
 
 export default function BoardPage() {
-  const tasks = useTaskStore((s) => s.tasks)
-  const addTask = useTaskStore((s) => s.addTask)
-  const completeAll = useTaskStore((s) => s.completeAll)
-  const clearCompleted = useTaskStore((s) => s.clearCompleted)
-  const isLoading = useTaskStore((s) => s.isLoading)
-  const error = useTaskStore((s) => s.error)
-  const fetchTasks = useTaskStore((s) => s.fetchTasks)
+  // 一行代替了第 15 章的 fetchTasks + isLoading + error + useEffect
+  const { data: tasks = [], isPending, isFetching, isError, error, refetch } = useTasks()
+
+  const createTask = useCreateTask()
+  const bulkUpdate = useBulkUpdate()
+  const bulkDelete = useBulkDelete()
 
   const showForm = useUIStore((s) => s.showForm)
   const toggleForm = useUIStore((s) => s.toggleForm)
   const closeForm = useUIStore((s) => s.closeForm)
 
-  // 筛选和关键词现在的唯一来源是 URL
   const { filters, keyword, setKeyword, isDefault } = useTaskFilters()
 
-  // 输入框需要即时响应（否则打字会卡），所以本地再存一份"正在输入的值"。
-  // 注意这不是"两份数据源" —— 本地这份是纯粹的输入缓冲，
-  // 真正的筛选依据始终是 URL 里那个。
   const [draftKeyword, setDraftKeyword] = useState(keyword)
   const debouncedDraft = useDebounce(draftKeyword, 300)
+  const [isTransitioning, startTransition] = useTransition()
 
-  // useTransition：把"写 URL + 重新过滤列表"标记为低优先级，
-  // 保证用户打字这种高优先级交互永远流畅。
-  const [isPending, startTransition] = useTransition()
-
-  // 记住"最近一次已经和 URL 对上账的关键词"，用来区分
-  // "我自己刚写进 URL 的"和"外部（后退键、别的链接）改的"
+  // 和第 14 章一样：用 ref 区分"自己刚写进 URL 的"和"外部改的"，避免回灌覆盖用户新敲的字
   const syncedKeywordRef = useRef(keyword)
 
-  // 输入框 → URL：停手 300ms 之后才写
   useEffect(() => {
     if (debouncedDraft === syncedKeywordRef.current) return
     syncedKeywordRef.current = debouncedDraft
-    startTransition(() => {
-      setKeyword(debouncedDraft)
-    })
-    // setKeyword 每次渲染都是新函数，故意不放进依赖 —— 放了会死循环。
-    // 真实项目里应该用 useCallback 包住 setKeyword，或用 latest ref pattern。
-    // 下面这行 eslint-disable 注释，脚手架自带的 oxlint 也认（npm run lint 会照着忽略）。
+    startTransition(() => setKeyword(debouncedDraft))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedDraft])
 
-  // URL → 输入框：只有"外部"改了 URL 才同步过来。
-  // 我们自己刚写进去的那次变化不能回灌 —— 写 URL 是低优先级的 transition，
-  // 它落地的时候用户可能已经又敲了新字，这时回灌会把新敲的字覆盖掉。
   useEffect(() => {
     if (keyword === syncedKeywordRef.current) return
     syncedKeywordRef.current = keyword
@@ -69,39 +51,50 @@ export default function BoardPage() {
     [tasks, keyword, filters],
   )
 
-  const pendingCount = tasks.filter((t) => t.status !== 'done').length
-  const doneCount = tasks.length - pendingCount
-
-  // 进页面拉一次数据。
-  // ⚠️ StrictMode 下这会请求两次 —— 看 Network 面板能看到。
-  //    第 16 章用 TanStack Query 后这个问题自动消失（它会去重）。
-  useEffect(() => {
-    void fetchTasks()
-  }, [fetchTasks])
+  const pendingTasks = tasks.filter((t) => t.status !== 'done')
+  const doneTasks = tasks.filter((t) => t.status === 'done')
 
   useEffect(() => {
-    document.title = pendingCount > 0 ? `(${pendingCount}) TaskFlow` : 'TaskFlow'
-    // 离开看板页时恢复标题，否则其他页面也会显示未完成数
-    return () => {
-      document.title = 'TaskFlow'
-    }
-  }, [pendingCount])
+    document.title = pendingTasks.length > 0 ? `(${pendingTasks.length}) TaskFlow` : 'TaskFlow'
+  }, [pendingTasks.length])
+
+  const isMutating = createTask.isPending || bulkUpdate.isPending || bulkDelete.isPending
 
   const ghostButton =
-    'rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800'
+    'rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-200 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800'
+
+  // isPending = 从来没成功过 → 显示骨架屏
+  if (isPending) return <PageLoading />
 
   return (
     <>
+      {/* isFetching = 正在后台刷新（有缓存时不显示骨架屏，只显示一个细条） */}
+      {isFetching && (
+        <div className="fixed left-0 right-0 top-0 h-0.5 animate-pulse bg-blue-500" />
+      )}
+
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">我的任务</h1>
         <div className="flex flex-wrap gap-2">
-          {pendingCount > 0 && (
-            <button type="button" onClick={completeAll} className={ghostButton}>
+          {pendingTasks.length > 0 && (
+            <button
+              type="button"
+              disabled={isMutating}
+              onClick={() =>
+                bulkUpdate.mutate({ ids: pendingTasks.map((t) => t.id), patch: { status: 'done' } })
+              }
+              className={ghostButton}
+            >
               全部完成
             </button>
           )}
-          {doneCount > 0 && (
-            <button type="button" onClick={clearCompleted} className={ghostButton}>
+          {doneTasks.length > 0 && (
+            <button
+              type="button"
+              disabled={isMutating}
+              onClick={() => bulkDelete.mutate(doneTasks.map((t) => t.id))}
+              className={ghostButton}
+            >
               清除已完成
             </button>
           )}
@@ -115,11 +108,16 @@ export default function BoardPage() {
         </div>
       </div>
 
+      {isError && (
+        <ErrorBanner message={error.message} onRetry={() => void refetch()} />
+      )}
+
       {showForm && (
         <div className="mb-4">
           <TaskForm
+            submitText={createTask.isPending ? '提交中…' : '添加'}
             onSubmit={(draft) => {
-              addTask(draft)
+              createTask.mutate(draft)
               closeForm()
             }}
             onCancel={closeForm}
@@ -127,12 +125,10 @@ export default function BoardPage() {
         </div>
       )}
 
-      {error && <ErrorBanner message={error} onRetry={fetchTasks} />}
-
       <SearchBar
         value={draftKeyword}
         onChange={setDraftKeyword}
-        pending={draftKeyword !== keyword || isPending}
+        pending={draftKeyword !== keyword || isTransitioning}
       />
       <FilterBar />
       <TaskStats />
@@ -144,14 +140,9 @@ export default function BoardPage() {
         </p>
       )}
 
-      {/* isPending 时给列表加个半透明，提示"正在更新" */}
-      {isLoading ? (
-        <PageLoading />
-      ) : (
-        <div className={isPending ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
-          <TaskList tasks={visibleTasks} />
-        </div>
-      )}
+      <div className={isTransitioning ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+        <TaskList tasks={visibleTasks} />
+      </div>
     </>
   )
 }

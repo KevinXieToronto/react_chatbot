@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router'
 import ThemeToggle from '../components/ThemeToggle'
-import { useTaskStore } from '../store/taskStore'
+import { useTasks } from '../api/taskQueries'
 
 const NAV_ITEMS = [
   { to: '/', label: '看板', end: true },
@@ -9,14 +9,15 @@ const NAV_ITEMS = [
 ]
 
 export default function RootLayout() {
-  const taskCount = useTaskStore((s) => s.tasks.length)
+  const { data: tasks = [] } = useTasks()
+  const taskCount = tasks.length
 
   return (
     <div className="min-h-full bg-slate-50 dark:bg-slate-900">
       <header className="border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
           <div className="flex items-center gap-6">
-            {/* Logo 用 NavLink 跳回首页 */}
+            {/* Logo 用 Link 跳回首页 */}
             <NavLink to="/" className="flex items-center gap-2">
               <span className="grid h-7 w-7 place-items-center rounded bg-blue-600 text-sm font-bold text-white">
                 T

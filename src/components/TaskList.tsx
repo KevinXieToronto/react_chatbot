@@ -3,7 +3,7 @@ import type { Task } from '../types/task'
 import TaskCard from './TaskCard'
 import TaskForm from './TaskForm'
 import EmptyState from './EmptyState'
-import { useTaskStore } from '../store/taskStore'
+import { useUpdateTask } from '../api/taskQueries'
 import { useUIStore } from '../store/uiStore'
 
 interface TaskListProps {
@@ -13,7 +13,7 @@ interface TaskListProps {
 const TaskList = memo(function TaskList({ tasks }: TaskListProps) {
   const editingId = useUIStore((s) => s.editingId)
   const setEditingId = useUIStore((s) => s.setEditingId)
-  const updateTask = useTaskStore((s) => s.updateTask)
+  const updateTask = useUpdateTask()
 
   if (tasks.length === 0) {
     return <EmptyState title="没有符合条件的任务" description="试试调整筛选条件或新建一个" />
@@ -33,7 +33,7 @@ const TaskList = memo(function TaskList({ tasks }: TaskListProps) {
             }}
             submitText="保存"
             onSubmit={(draft) => {
-              updateTask(task.id, draft)
+              updateTask.mutate({ id: task.id, patch: draft })
               setEditingId(null)
             }}
             onCancel={() => setEditingId(null)}
