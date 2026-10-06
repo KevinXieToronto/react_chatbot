@@ -5,7 +5,8 @@ import SearchBar from '../components/SearchBar'
 import FilterBar from '../components/FilterBar'
 import TaskStats from '../components/TaskStats'
 import ErrorBanner from '../components/ErrorBanner'
-import PageLoading from '../components/PageLoading'
+import ErrorBoundary from '../components/ErrorBoundary'
+import { TaskListSkeleton } from '../components/skeletons'
 import { useDebounce } from '../hooks/useDebounce'
 import { useTaskFilters } from '../hooks/useTaskFilters'
 import { processTasks } from '../lib/taskUtils'
@@ -64,7 +65,7 @@ export default function BoardPage() {
     'rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-200 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800'
 
   // isPending = 从来没成功过 → 显示骨架屏
-  if (isPending) return <PageLoading />
+  if (isPending) return <TaskListSkeleton count={4} />
 
   return (
     <>
@@ -131,7 +132,13 @@ export default function BoardPage() {
         pending={draftKeyword !== keyword || isTransitioning}
       />
       <FilterBar />
-      <TaskStats />
+      {/*
+        统计条崩了不该影响任务列表 —— 给它一个自己的边界，
+        降级 UI 就是一行小字，不打扰用户。
+      */}
+      <ErrorBoundary fallback={<p className="mb-4 text-sm text-slate-400">统计信息暂时不可用</p>}>
+        <TaskStats />
+      </ErrorBoundary>
 
       {!isDefault && (
         <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">

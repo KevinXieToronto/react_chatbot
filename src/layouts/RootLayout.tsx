@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useLocation } from 'react-router'
+import ErrorBoundary from '../components/ErrorBoundary'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTasks } from '../api/taskQueries'
 
@@ -9,6 +10,7 @@ const NAV_ITEMS = [
 ]
 
 export default function RootLayout() {
+  const location = useLocation()
   const { data: tasks = [] } = useTasks()
   const taskCount = tasks.length
 
@@ -57,7 +59,13 @@ export default function RootLayout() {
 
       {/* 子路由渲染在这里。切换页面时 header 不会重新挂载。 */}
       <main className="mx-auto max-w-4xl px-4 py-6">
-        <Outlet />
+        {/*
+          resetKeys 传当前路径：用户切到别的页面时，错误状态自动清除。
+          不然一个页面崩了之后，切走再切回来还是错误界面。
+        */}
+        <ErrorBoundary resetKeys={[location.pathname]}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   )
