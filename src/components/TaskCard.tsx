@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { Task } from '../types/task'
 import { PRIORITY_META, STATUS_META } from '../types/task'
 import { useClickOutside } from '../hooks/useClickOutside'
@@ -11,7 +11,7 @@ interface TaskCardProps {
   onEdit: (id: string) => void
 }
 
-export default function TaskCard({ task, onToggle, onDelete, onEdit }: TaskCardProps) {
+const TaskCard = memo(function TaskCard({ task, onToggle, onDelete, onEdit }: TaskCardProps) {
   const priority = PRIORITY_META[task.priority]
   const status = STATUS_META[task.status]
   const isDone = task.status === 'done'
@@ -95,4 +95,6 @@ export default function TaskCard({ task, onToggle, onDelete, onEdit }: TaskCardP
       </div>
     </div>
   )
-}
+})
+
+export default TaskCard

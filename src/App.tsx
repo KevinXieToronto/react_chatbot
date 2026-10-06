@@ -1,33 +1,78 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Header from './components/Header'
 import PageContainer from './components/PageContainer'
 import TaskList from './components/TaskList'
 import TaskStats from './components/TaskStats'
 import TaskForm from './components/TaskForm'
 import SearchBar from './components/SearchBar'
+import FilterBar from './components/FilterBar'
 import { mockTasks } from './data/mockTasks'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { useDebounce } from './hooks/useDebounce'
+import { processTasks } from './lib/taskUtils'
+import { DEFAULT_FILTERS } from './types/filter'
+import type { TaskFilters } from './types/filter'
 import type { Task, TaskDraft } from './types/task'
 
 export default function App() {
-  // 一行替代了原来的 useState(loadTasks) + useEffect(saveTasks)
   const [tasks, setTasks] = useLocalStorage<Task[]>('taskflow:tasks', mockTasks)
-
   const [showForm, setShowForm] = useState(false)
   const [keyword, setKeyword] = useState('')
+  const [filters, setFilters] = useState<TaskFilters>(DEFAULT_FILTERS)
 
-  // 用户停止输入 300ms 后，debouncedKeyword 才更新
   const debouncedKeyword = useDebounce(keyword, 300)
   const isSearchPending = keyword !== debouncedKeyword
 
-  const kw = debouncedKeyword.trim().toLowerCase()
-  const visibleTasks = kw
-    ? tasks.filter(
-        (task) =>
-          task.title.toLowerCase().includes(kw) || task.description.toLowerCase().includes(kw),
+  // useMemo 1：缓存筛选排序的结果。
+  // 现在数据量小，这个 memo 主要价值是"保持 visibleTasks 引用稳定" ——
+  // 否则每次渲染都是新数组，memo 包裹的 TaskList 会白白重渲染。
+  const visibleTasks = useMemo(
+    () => processTasks(tasks, debouncedKeyword, filters),
+    [tasks, debouncedKeyword, filters],
+  )
+
+  // useCallback：这三个函数要传给 memo 包裹的 TaskList / TaskCard，
+  // 必须保持引用稳定，否则 memo 完全失效。
+  // 注意依赖数组都是空的 —— 因为用了函数式更新，不需要读 tasks。
+  const handleToggle = useCallback(
+    (id: string) => {
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === id
+            ? { ...task, status: task.status === 'done' ? 'todo' : 'done' }
+            : task,
+        ),
       )
-    : tasks
+    },
+    [setTasks],
+  )
+
+  const handleDelete = useCallback(
+    (id: string) => {
+      setTasks((prev) => prev.filter((task) => task.id !== id))
+    },
+    [setTasks],
+  )
+
+  const handleUpdate = useCallback(
+    (id: string, draft: TaskDraft) => {
+      setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, ...draft } : task)))
+    },
+    [setTasks],
+  )
+
+  const handleCreate = useCallback(
+    (draft: TaskDraft) => {
+      const newTask: Task = {
+        ...draft,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+      }
+      setTasks((prev) => [newTask, ...prev])
+      setShowForm(false)
+    },
+    [setTasks],
+  )
 
   const pendingCount = tasks.filter((t) => t.status !== 'done').length
   useEffect(() => {
@@ -37,33 +82,7 @@ export default function App() {
     }
   }, [pendingCount])
 
-  function handleToggle(id: string) {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id
-          ? { ...task, status: task.status === 'done' ? 'todo' : 'done' }
-          : task,
-      ),
-    )
-  }
-
-  function handleDelete(id: string) {
-    setTasks((prev) => prev.filter((task) => task.id !== id))
-  }
-
-  function handleCreate(draft: TaskDraft) {
-    const newTask: Task = {
-      ...draft,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    }
-    setTasks((prev) => [newTask, ...prev])
-    setShowForm(false)
-  }
-
-  function handleUpdate(id: string, draft: TaskDraft) {
-    setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, ...draft } : task)))
-  }
+  const isFiltering = debouncedKeyword.trim() !== '' || filters !== DEFAULT_FILTERS
 
   return (
     <div className="min-h-full bg-slate-50">
@@ -96,14 +115,16 @@ export default function App() {
         )}
 
         <SearchBar value={keyword} onChange={setKeyword} pending={isSearchPending} />
+        <FilterBar filters={filters} onChange={setFilters} />
 
-        {kw && (
+        <TaskStats tasks={tasks} />
+
+        {isFiltering && (
           <p className="mb-3 text-sm text-slate-500">
-            匹配到 <b className="text-slate-700">{visibleTasks.length}</b> 条
+            显示 <b className="text-slate-700">{visibleTasks.length}</b> / {tasks.length} 条
           </p>
         )}
 
-        <TaskStats tasks={tasks} />
         <TaskList
           tasks={visibleTasks}
           onToggle={handleToggle}

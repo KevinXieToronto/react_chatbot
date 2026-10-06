@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { Task, TaskDraft } from '../types/task'
 import TaskCard from './TaskCard'
 import TaskForm from './TaskForm'
@@ -12,13 +12,13 @@ interface TaskListProps {
   onUpdate: (id: string, draft: TaskDraft) => void
 }
 
-export default function TaskList({ tasks, onToggle, onDelete, onUpdate }: TaskListProps) {
+const TaskList = memo(function TaskList({ tasks, onToggle, onDelete, onUpdate }: TaskListProps) {
   // 纯 UI 状态：当前正在编辑哪一条。null 表示没有。
   // 放在这里而不是 App，因为只有 TaskList 需要读它。
   const [editingId, setEditingId] = useState<string | null>(null)
 
   if (tasks.length === 0) {
-    return <EmptyState title="还没有任务" description="点击上方按钮新建一个试试" />
+    return <EmptyState title="没有符合条件的任务" description="试试调整筛选条件或新建一个" />
   }
 
   return (
@@ -53,4 +53,6 @@ export default function TaskList({ tasks, onToggle, onDelete, onUpdate }: TaskLi
       )}
     </div>
   )
-}
+})
+
+export default TaskList
