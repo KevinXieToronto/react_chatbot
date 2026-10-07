@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getClient, isMock, MODEL, SYSTEM_PROMPT } from '../agent/claude.js'
+import { getClient, isMock, MODEL, SYSTEM_PROMPT } from '../agent/openai.js'
 import { validateMessages } from '../validate.js'
 
 export const chatRouter = Router()
@@ -13,7 +13,7 @@ function mockReply(userText) {
   if (t.includes('任务') || t.includes('待办')) {
     return '（Mock 模式）我现在还不能真的读取你的任务数据 —— 那是第 25 章要实现的工具调用。不过这条回复本身走的是完整的真实链路：前端 → BFF → 回来。'
   }
-  return `（Mock 模式）我收到了你的消息："${t.slice(0, 60)}"。\n\n要切换到真实的 Claude，把 server/.env 里的 MOCK 改成 0 并填上 ANTHROPIC_API_KEY。`
+  return `（Mock 模式）我收到了你的消息："${t.slice(0, 60)}"。\n\n要切换到真实的 OpenAI，把 server/.env 里的 MOCK 改成 0 并填上 OPENAI_API_KEY。`
 }
 
 chatRouter.post('/', async (req, res) => {
@@ -36,36 +36,39 @@ chatRouter.post('/', async (req, res) => {
     })
   }
 
-  // ── 真实 Claude 分支 ────────────────────────
+  // ── 真实 OpenAI 分支 ────────────────────────
   try {
     const client = getClient()
 
-    const response = await client.messages.create({
+    const response = await client.chat.completions.create({
       model: MODEL,
-      max_tokens: 16000,
-      system: SYSTEM_PROMPT,
-      // 只把 role 和 content 传给 API，前端可能带了别的字段（id、时间戳）
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      max_completion_tokens: 16000,
+      messages: [
+        // OpenAI 的系统提示词是 messages 里的第一条 system 消息
+        { role: 'system', content: SYSTEM_PROMPT },
+        // 只把 role 和 content 传给 API，前端可能带了别的字段（id、时间戳）
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
+      ],
     })
 
-    // ⚠️ 安全分类器可能拒绝回答，这时 HTTP 是 200 但 stop_reason 是 refusal。
-    //    必须先看 stop_reason 再读 content。
-    if (response.stop_reason === 'refusal') {
+    const choice = response.choices[0]
+    // 换算成前端已经在用的 usage 形状
+    const usage = {
+      input_tokens: response.usage?.prompt_tokens ?? 0,
+      output_tokens: response.usage?.completion_tokens ?? 0,
+    }
+
+    // ⚠️ 模型拒绝回答时 HTTP 仍是 200：要么 message.refusal 有值，
+    //    要么 finish_reason 是 content_filter。先检查这两个再读 content。
+    if (choice?.message.refusal || choice?.finish_reason === 'content_filter') {
       return res.json({
         text: '抱歉，这个请求我没法处理。',
         stopReason: 'refusal',
-        usage: response.usage,
+        usage,
       })
     }
 
-    // content 是一个数组（可能含 thinking / text / tool_use 多种块），
-    // 要按 type 过滤出文本块。直接取 content[0].text 是错的。
-    const text = response.content
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
-
-    res.json({ text, usage: response.usage, stopReason: response.stop_reason })
+    res.json({ text: choice?.message.content ?? '', usage, stopReason: choice?.finish_reason })
   } catch (err) {
     console.error('[chat] 调用失败：', err)
     const status = err?.status ?? 500

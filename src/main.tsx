@@ -15,7 +15,7 @@ createRoot(document.getElementById('root')!).render(
         <RouterProvider router={router} />
       </ThemeProvider>
       {/* 开发工具，构建时会被自动剔除，不进生产包 */}
-      <ReactQueryDevtools initialIsOpen={false} />
+      <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />
     </QueryClientProvider>
   </StrictMode>,
 )

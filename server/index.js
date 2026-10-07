@@ -5,7 +5,7 @@ import express from 'express'
 import cors from 'cors'
 import { tasksRouter } from './routes/tasks.js'
 import { chatRouter } from './routes/chat.js'
-import { isMock } from './agent/claude.js'
+import { isMock } from './agent/openai.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
 // 默认只监听本机回环地址：同一个局域网里的其他机器连不上。
@@ -71,5 +71,5 @@ app.get('/health', (_req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`\n  TaskFlow 后端已启动：http://localhost:${PORT}`)
   console.log(`  监听地址：${HOST}${HOST === '127.0.0.1' ? '（只有本机能访问）' : ''}`)
-  console.log(`  模式：${isMock() ? 'Mock（不调用真实 API）' : '真实 Claude API'}\n`)
+  console.log(`  模式：${isMock() ? 'Mock（不调用真实 API）' : '真实 OpenAI API'}\n`)
 })

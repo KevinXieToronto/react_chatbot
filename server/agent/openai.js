@@ -1,8 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 
 /** 是不是 Mock 模式：没配 key，或显式开了 MOCK */
 export function isMock() {
-  return process.env.MOCK === '1' || !process.env.ANTHROPIC_API_KEY
+  return process.env.MOCK === '1' || !process.env.OPENAI_API_KEY
 }
 
 let client = null
@@ -10,22 +10,14 @@ let client = null
 export function getClient() {
   if (isMock()) return null
   if (!client) {
-    // 不传 apiKey，SDK 自动从环境变量 ANTHROPIC_API_KEY 读
-    client = new Anthropic()
+    // 不传参数，SDK 自动从环境变量 OPENAI_API_KEY 和 OPENAI_BASE_URL 读
+    client = new OpenAI()
   }
   return client
 }
 
-/**
- * 模型选择。
- * - claude-opus-5   最强，适合复杂推理和长链条工具调用
- * - claude-sonnet-5 便宜不少，日常对话足够
- * - claude-haiku-4-5 最便宜最快，适合简单分类/改写
- *
- * 教程默认用 opus-5。你自己用的话按任务复杂度选，
- * 一个聊天助手其实 sonnet-5 就够了。
- */
-export const MODEL = 'claude-opus-5'
+/** 模型名放在 server/.env 的 OPENAI_MODEL 里，换模型不用改代码 */
+export const MODEL = process.env.OPENAI_MODEL ?? 'gpt-5.6-luna'
 
 export const SYSTEM_PROMPT = `你是 TaskFlow 的任务助手 Copilot。
 
