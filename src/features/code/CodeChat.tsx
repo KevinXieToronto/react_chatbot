@@ -4,9 +4,16 @@ import { useChat } from '../copilot/useChat'
 import MessageList from '../copilot/MessageList'
 import ChatComposer from '../copilot/ChatComposer'
 import StopBar from '../copilot/StopBar'
+import ApprovalCard from '../copilot/ApprovalCard'
 import { useFileSync } from './useFileSync'
 
-const SUGGESTIONS = ['列出文件', '看看 src/math.js', '帮我修复 bug', '新建文件 src/clamp.js', '读一下 ../server/.env']
+const SUGGESTIONS = [
+  '列出文件',
+  '跑一下测试',
+  '帮我修复 bug',
+  '新建文件 src/clamp.js',
+  '用命令看看 ../server/.env',
+]
 
 /** 在回调里现取消息，不经过渲染闭包（见 useChat 的 send）。定义在组件外，引用稳定 */
 const getCodeMessages = () => useCodeStore.getState().messages
@@ -27,7 +34,12 @@ export default function CodeChat() {
   }
 
   const syncFiles = useFileSync()
-  const { send, stop, retry, phaseText } = useChat(session, { mode: 'code', onInvalidate: syncFiles })
+  const { send, stop, retry, decide, approval, phaseText } = useChat(session, {
+    mode: 'code',
+    onInvalidate: syncFiles,
+  })
+
+  const awaiting = approval !== null
 
   return (
     <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
@@ -48,9 +60,15 @@ export default function CodeChat() {
         onRetry={retry}
         emptyHint={
           <>
-            <p>让 Agent 读代码、找 bug、改文件</p>
-            <p className="mt-1 text-xs">它只能访问项目根目录下的 workspace/</p>
+            <p>让 Agent 读代码、找 bug、改文件、跑测试</p>
+            <p className="mt-1 text-xs">改文件和执行命令之前，它会先停下来问你</p>
           </>
+        }
+        footer={
+          approval && (
+            // key：换了一个审批就重新挂载，备注、提交状态都从头开始
+            <ApprovalCard key={approval.approvalId} approval={approval} onDecide={decide} />
+          )
         }
       />
 
@@ -71,7 +89,13 @@ export default function CodeChat() {
 
       {busy && <StopBar text={phaseText} onStop={stop} />}
 
-      <ChatComposer busy={busy} onSend={(text) => void send(text)} placeholder="比如：帮我修复 bug" />
+      {/* 等审批时禁用输入框：此时发新消息会中止当前这一轮，审批卡片也就白弹了 */}
+      <ChatComposer
+        busy={busy}
+        disabled={awaiting}
+        onSend={(text) => void send(text)}
+        placeholder={awaiting ? '先处理上面的确认请求…' : '比如：帮我修复 bug'}
+      />
     </section>
   )
 }

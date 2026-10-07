@@ -7,6 +7,7 @@ import {
   resolveInWorkspace,
   toRel,
 } from './workspace.js'
+import { runShell } from './shell.js'
 
 /** read_file 一次最多返回多少行 */
 const MAX_READ_LINES = 400
@@ -14,6 +15,8 @@ const MAX_READ_LINES = 400
 const MAX_SEARCH_RESULTS = 50
 /** create_file / edit_file 写入内容的上限 */
 const MAX_WRITE_CHARS = 200_000
+/** run_command 返回给模型的输出上限（字符） */
+const MAX_COMMAND_OUTPUT = 20_000
 
 /**
  * 编码 Agent 的工具定义。
@@ -88,6 +91,21 @@ export const codeToolDefinitions = [
         new_str: { type: 'string', description: '替换成的新内容' },
       },
       required: ['path', 'old_str', 'new_str'],
+    },
+  },
+  {
+    name: 'run_command',
+    description:
+      '在工作区根目录执行一条 shell 命令（Windows 上是 cmd.exe，其他系统是 sh），返回退出码和输出。' +
+      '适合跑测试、构建、查看 git 状态。命令不能交互（没有标准输入），' +
+      '默认 30 秒超时，输出过长时只保留开头和结尾。每次执行都需要用户批准，请一次只跑一条必要的命令。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: '要执行的命令，例如 npm test' },
+        timeout_seconds: { type: 'integer', description: '超时秒数，1~120，默认 30' },
+      },
+      required: ['command'],
     },
   },
 ]
@@ -283,19 +301,49 @@ const executors = {
       changedPath: toRel(abs),
     })
   },
+
+  async run_command(input, ctx) {
+    const command = String(input.command ?? '').trim()
+    if (!command) return fail('缺少 command')
+    if (command.length > 1000) return fail('命令太长了')
+
+    const seconds = Math.min(120, Math.max(1, Number.parseInt(input.timeout_seconds, 10) || 30))
+    // 确认工作区目录存在（顺便过一遍沙箱检查）
+    const cwd = await resolveInWorkspace('.')
+
+    const r = await runShell(command, {
+      cwd,
+      timeoutMs: seconds * 1000,
+      maxOutput: MAX_COMMAND_OUTPUT,
+      signal: ctx.signal,
+    })
+
+    if (r.aborted) return fail('命令被用户中止')
+    if (r.timedOut) return fail(`命令超过 ${seconds} 秒没有结束，已强制终止。已有的输出：\n${r.output}`)
+    if (r.overflow) return fail(`命令输出超过 2 MB，已强制终止。最后的输出：\n${r.output}`)
+
+    // 退出码非 0 也算"工具成功执行了"：命令跑完了，只是结果是失败。
+    // 把退出码和输出交给模型判断（比如测试没过，它会去修）。
+    const text = `$ ${command}\n（退出码 ${r.exitCode}）\n${r.output || '（没有输出）'}`
+    return ok(text, r.exitCode === 0 ? '退出码 0' : `退出码 ${r.exitCode}（失败）`, {
+      // 命令可能改了任何文件（格式化、生成代码…），让前端把文件面板整体刷新一次
+      touchedFiles: true,
+    })
+  },
 }
 
 /**
  * 执行一个编码工具。
  * 和 runTool 一样：input 是模型生成的，不可信；所有路径都要过沙箱。
+ * ctx.signal：用户点了停止时，正在跑的命令会被杀掉。
  */
-export async function runCodeTool(name, input) {
+export async function runCodeTool(name, input, ctx = {}) {
   // 用 Object.hasOwn 而不是 executors[name]：name 是模型给的，
   // 传个 "constructor" 进来，executors[name] 会拿到 Object 构造函数
   if (!Object.hasOwn(executors, name)) return fail(`未知的工具：${name}`)
 
   try {
-    return await executors[name](input ?? {})
+    return await executors[name](input ?? {}, ctx)
   } catch (err) {
     // 沙箱 / 文件不存在这类"预期中的错误"，把原因告诉模型，它能自己调整
     if (err instanceof WorkspaceError) return fail(err.message)

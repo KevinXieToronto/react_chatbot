@@ -1,8 +1,32 @@
+import { readFileSync } from 'node:fs'
+import { parseEnv } from 'node:util'
 import { defineConfig } from 'vite'
 import { configDefaults } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { visualizer } from 'rollup-plugin-visualizer'
+
+/**
+ * 读 server/.env 里的 TASKFLOW_TOKEN（第 30 章），代理转发 /api 时加到请求头上。
+ *
+ * - 用 node:util 的 parseEnv 自己解析、只取这一个值：不写进 process.env，
+ *   也不经过 Vite 的 import.meta.env —— 它只活在 vite.config 这个 Node 进程里，
+ *   永远不会被打进前端包，浏览器里的代码拿不到它。
+ * - 文件不存在时返回空字符串：npm run build、npm test 用不着它。
+ *   这时代理照样转发，后端回 401，提醒你去配令牌。
+ * - 只在启动时读一次：改了 server/.env 里的令牌，要重启 npm run dev。
+ */
+function readServerToken(): string {
+  try {
+    const text = readFileSync(new URL('./server/.env', import.meta.url), 'utf8')
+    const env = parseEnv(text)
+    return env.TASKFLOW_TOKEN?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
+const serverToken = readServerToken()
 
 export default defineConfig({
   plugins: [
@@ -19,6 +43,8 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
+        // 每个转发出去的请求都带上令牌。页面里的代码完全不知道它的存在
+        headers: { 'x-taskflow-token': serverToken },
       },
     },
   },

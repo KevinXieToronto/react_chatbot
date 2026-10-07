@@ -8,6 +8,16 @@ import { chatRouter } from './routes/chat.js'
 import { filesRouter } from './routes/files.js'
 import { isMock } from './agent/openai.js'
 import { workspaceRoot } from './agent/workspace.js'
+import { createRequireToken, readServerToken } from './auth.js'
+
+// ③ 服务端令牌（第 30 章）：没配就不启动。宁可启动不了，也不要"忘了配就裸奔"
+let requireToken
+try {
+  requireToken = createRequireToken(readServerToken())
+} catch (err) {
+  console.error(`\n  ✖ TaskFlow 后端无法启动：${err.message}\n`)
+  process.exit(1)
+}
 
 const PORT = Number(process.env.PORT ?? 3001)
 // 默认只监听本机回环地址：同一个局域网里的其他机器连不上。
@@ -63,10 +73,12 @@ app.use((req, _res, next) => {
   next()
 })
 
-app.use('/tasks', tasksRouter)
-app.use('/chat', chatRouter)
-app.use('/files', filesRouter)
+// ③ 除了 /health，所有接口都要令牌。/chat 包括了 /chat/approvals/:id
+app.use('/tasks', requireToken, tasksRouter)
+app.use('/chat', requireToken, chatRouter)
+app.use('/files', requireToken, filesRouter)
 
+// 健康检查不要令牌：只回答"活着没有、是不是 Mock"，不泄露任何数据
 app.get('/health', (_req, res) => {
   res.json({ ok: true, mock: isMock() })
 })
@@ -75,5 +87,6 @@ app.listen(PORT, HOST, () => {
   console.log(`\n  TaskFlow 后端已启动：http://localhost:${PORT}`)
   console.log(`  监听地址：${HOST}${HOST === '127.0.0.1' ? '（只有本机能访问）' : ''}`)
   console.log(`  模式：${isMock() ? 'Mock（不调用真实 API）' : '真实 OpenAI API'}`)
-  console.log(`  代码助手工作区：${workspaceRoot()}\n`)
+  console.log(`  代码助手工作区：${workspaceRoot()}`)
+  console.log('  调用接口需要请求头 x-taskflow-token（值在 server/.env 里）\n')
 })

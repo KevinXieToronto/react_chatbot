@@ -10,7 +10,8 @@ export interface ToolCall {
   id: string
   name: string
   input: unknown
-  status: 'running' | 'success' | 'error'
+  /** awaiting：等待用户审批（第 30 章） */
+  status: 'running' | 'awaiting' | 'success' | 'error'
   /** 给用户看的一句话总结，不是原始 JSON */
   summary?: string
 }
@@ -27,6 +28,19 @@ export interface ChatMessage {
   error?: string
   /** 错误类型：retryable / input / config */
   errorKind?: string
+}
+
+/** 一个等待用户确认的工具调用（第 30 章） */
+export interface PendingApproval {
+  approvalId: string
+  /** 对应哪一个工具调用（ToolCall.id） */
+  toolUseId: string
+  name: string
+  input: unknown
+  /** 服务端给的一句话影响说明 */
+  reason?: string
+  /** 什么时候自动过期（本地时间戳，毫秒） */
+  expiresAt: number
 }
 
 /** 发给后端的精简格式 —— 只有 API 需要的字段 */

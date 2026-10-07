@@ -10,9 +10,11 @@ interface MessageListProps {
   onRetry?: (messageId: string) => void
   /** 没有消息时显示的提示 */
   emptyHint?: ReactNode
+  /** 渲染在消息流最下面的内容，比如第 30 章的审批卡片 */
+  footer?: ReactNode
 }
 
-export default function MessageList({ messages, onRetry, emptyHint }: MessageListProps) {
+export default function MessageList({ messages, onRetry, emptyHint, footer }: MessageListProps) {
   const [keyword, setKeyword] = useState('')
 
   /**
@@ -32,7 +34,8 @@ export default function MessageList({ messages, onRetry, emptyHint }: MessageLis
   const last = messages.at(-1)
   // 工具调用的数量和状态也算"内容变化"：工具卡片出现时同样要滚到底
   const toolSig = last?.toolCalls?.map((t) => t.status).join(',') ?? ''
-  const scrollDep = `${messages.length}:${last?.content.length ?? 0}:${last?.status}:${toolSig}`
+  // footer 出现 / 消失（比如审批卡片弹出来）也要滚到底，不然用户看不到
+  const scrollDep = `${messages.length}:${last?.content.length ?? 0}:${last?.status}:${toolSig}:${footer ? 1 : 0}`
 
   const { containerRef, hasNew, scrollToBottom } = useAutoScroll<HTMLDivElement>({
     dep: scrollDep,
@@ -74,6 +77,7 @@ export default function MessageList({ messages, onRetry, emptyHint }: MessageLis
         ) : (
           visible.map((m) => <MessageBubble key={m.id} message={m} onRetry={onRetry} />)
         )}
+        {footer}
       </div>
 
       {hasNew && (

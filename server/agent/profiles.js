@@ -37,7 +37,9 @@ const PROFILES = {
     tools: codeToolDefinitions,
     runTool: runCodeTool,
     invalidation: (name, result) =>
-      result.changedPath ? { resource: 'files', op: name, path: result.changedPath } : null,
+      result.changedPath || result.touchedFiles
+        ? { resource: 'files', op: name, path: result.changedPath }
+        : null,
     // ⚠️ 编码工具必须串行：两个 edit_file 同时改同一个文件，
     //    后写的会覆盖先写的（都是"读 → 改 → 整个写回"），前一个改动就丢了。
     parallelTools: false,

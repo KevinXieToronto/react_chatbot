@@ -8,6 +8,7 @@ interface ToolCallListProps {
 
 const ICONS: Record<ToolCall['status'], string> = {
   running: '⏳',
+  awaiting: '✋',
   success: '✅',
   error: '❌',
 }
@@ -26,13 +27,16 @@ const ToolCallList = memo(function ToolCallList({ toolCalls }: ToolCallListProps
               : 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-300'
           }`}
         >
-          <span className={t.status === 'running' ? 'animate-pulse' : ''}>
+          <span className={t.status === 'running' || t.status === 'awaiting' ? 'animate-pulse' : ''}>
             {ICONS[t.status]}
           </span>
           <span className="min-w-0 flex-1">
             <b className="font-medium">{TOOL_LABELS[t.name] ?? t.name}</b>
             {t.summary && <span className="ml-1 text-slate-500 dark:text-slate-400">· {t.summary}</span>}
             {t.status === 'running' && <span className="ml-1 text-slate-400">运行中…</span>}
+            {t.status === 'awaiting' && (
+              <span className="ml-1 text-amber-600 dark:text-amber-400">等待你确认…</span>
+            )}
           </span>
         </li>
       ))}

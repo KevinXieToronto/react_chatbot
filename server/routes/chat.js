@@ -6,6 +6,7 @@ import { createToolRunner } from '../agent/toolRunner.js'
 import { openStream, sleep, sse } from '../agent/stream.js'
 import { rateLimit } from '../middleware/rateLimit.js'
 import { validateMessages } from '../validate.js'
+import { resolveApproval, listPendingApprovals } from '../agent/approvals.js'
 
 export const chatRouter = Router()
 
@@ -136,4 +137,32 @@ chatRouter.post('/', rateLimit({ windowMs: 60_000, max: 20 }), async (req, res) 
       res.end()
     }
   }
+})
+
+// ── 人在回路：前端通过这个接口回传"允许 / 拒绝" ──────────────
+// POST /chat/approvals/:id  body: { decision: 'allow' | 'deny', note?: string }
+chatRouter.post('/approvals/:id', (req, res) => {
+  const { decision, note = '' } = req.body ?? {}
+
+  if (decision !== 'allow' && decision !== 'deny') {
+    return res.status(400).json({ message: 'decision 只能是 allow 或 deny' })
+  }
+  if (typeof note !== 'string' || note.length > 500) {
+    return res.status(400).json({ message: 'note 必须是 500 字以内的字符串' })
+  }
+
+  // ⚠️ id 是随机 UUID，但"猜不出来"不算保护：开这条流的人自己就能收到 id。
+  //    真正挡住外人的是 index.js 里的 requireToken（第 30 章"给服务端加一把钥匙"）；
+  //    有用户系统的产品还要校验"这个审批属于当前登录用户"。
+  const found = resolveApproval(req.params.id, decision, note.trim())
+  if (!found) {
+    // 不存在、已超时、已处理过、或者那次对话已经断开 —— 对前端来说都是"过期了"
+    return res.status(404).json({ message: '审批不存在或已过期' })
+  }
+  res.json({ ok: true })
+})
+
+// GET /chat/approvals → 当前还在等待的审批（调试用，生产环境不要暴露）
+chatRouter.get('/approvals', (_req, res) => {
+  res.json({ pending: listPendingApprovals() })
 })

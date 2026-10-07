@@ -21,6 +21,25 @@ export type ChatStreamEvent =
       usage?: { input_tokens?: number; output_tokens?: number }
     }
   | { type: 'error'; message: string; kind?: string }
+  // ── 第 30 章：人在回路 ──
+  | {
+      type: 'approval_required'
+      approvalId: string
+      toolUseId: string
+      name: string
+      input: unknown
+      reason?: string
+      /** 服务端多久后自动拒绝（毫秒） */
+      timeoutMs: number
+    }
+  | {
+      type: 'approval_resolved'
+      approvalId: string
+      toolUseId: string
+      decision: 'allow' | 'deny'
+      /** user = 用户点的；timeout = 超时自动拒绝 */
+      by: 'user' | 'timeout'
+    }
 
 /** 数据变更事件，单独导出给 onInvalidate 回调用 */
 export type InvalidateEvent = Extract<ChatStreamEvent, { type: 'invalidate' }>
@@ -118,7 +137,59 @@ export async function* streamChat(
           kind: d.kind ? String(d.kind) : undefined,
         }
         break
+      case 'approval_required':
+        yield {
+          type: 'approval_required',
+          approvalId: String(d.approvalId),
+          toolUseId: String(d.toolUseId),
+          name: String(d.name),
+          input: d.input,
+          reason: typeof d.reason === 'string' ? d.reason : undefined,
+          timeoutMs: Number(d.timeoutMs) || 120_000,
+        }
+        break
+      case 'approval_resolved':
+        yield {
+          type: 'approval_resolved',
+          approvalId: String(d.approvalId),
+          toolUseId: String(d.toolUseId),
+          decision: d.decision === 'allow' ? 'allow' : 'deny',
+          by: d.by === 'timeout' ? 'timeout' : 'user',
+        }
+        break
       // 未知事件忽略 —— 后端以后加新事件不会让旧前端崩
     }
+  }
+}
+
+/**
+ * 回传审批结果（第 30 章）。
+ *
+ * keepalive: true —— 用户点"停止"时我们会先发拒绝、紧接着中止流式请求；
+ * 带上 keepalive，这个小请求即使页面马上卸载 / 连接被中止也会发出去。
+ */
+export async function submitApproval(
+  approvalId: string,
+  decision: 'allow' | 'deny',
+  note = '',
+): Promise<void> {
+  const res = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL}/chat/approvals/${encodeURIComponent(approvalId)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, note }),
+      keepalive: true,
+    },
+  )
+  if (!res.ok) {
+    let message = `提交失败（${res.status}）`
+    try {
+      const body = await res.json()
+      if (body?.message) message = body.message
+    } catch {
+      /* 不是 JSON，用默认文案 */
+    }
+    throw new Error(message)
   }
 }
