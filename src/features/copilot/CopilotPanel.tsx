@@ -1,51 +1,30 @@
 import { useState } from 'react'
-import { chatApi } from '../../api/chatApi'
-import { ApiError } from '../../lib/http'
-import { useCopilotStore, createMessage } from '../../store/copilotStore'
-import { toWire } from '../../types/chat'
+import { useCopilotStore } from '../../store/copilotStore'
+import { useChat } from './useChat'
 
 export default function CopilotPanel() {
   const open = useCopilotStore((s) => s.open)
   const close = useCopilotStore((s) => s.close)
   const messages = useCopilotStore((s) => s.messages)
   const busy = useCopilotStore((s) => s.busy)
-  const addMessage = useCopilotStore((s) => s.addMessage)
-  const patchMessage = useCopilotStore((s) => s.patchMessage)
-  const setBusy = useCopilotStore((s) => s.setBusy)
   const clear = useCopilotStore((s) => s.clear)
 
   const [input, setInput] = useState('')
 
+  // ⚠️ 这一行必须写在下面的 `if (!open) return null` 之前。
+  //    Hook 的规则：每次渲染调用的 Hook 数量和顺序必须一样。
+  //    写在提前 return 后面的话，面板关着时少调一个 Hook、开着时多调一个，
+  //    React 会直接报错 "Rendered more hooks than during the previous render"。
+  const { send } = useChat()
+
   if (!open) return null
 
-  async function handleSend(e: React.FormEvent) {
+  function handleSend(e: React.FormEvent) {
     e.preventDefault()
     const text = input.trim()
     if (!text || busy) return
-
-    const userMessage = createMessage('user', text)
-    addMessage(userMessage)
     setInput('')
-    setBusy(true)
-
-    // 先插一条空的助手消息占位，第 22 章会往里填流式内容
-    const assistantMessage = createMessage('assistant', '', 'streaming')
-    addMessage(assistantMessage)
-
-    try {
-      // 注意：要把刚加的 user 消息也带上。
-      // store 里的 messages 是上一次渲染的快照，不包含刚 add 的那条。
-      const wire = toWire([...messages, userMessage])
-      const result = await chatApi.send(wire)
-      patchMessage(assistantMessage.id, { content: result.text, status: 'complete' })
-    } catch (err) {
-      patchMessage(assistantMessage.id, {
-        status: 'error',
-        error: err instanceof ApiError ? err.message : '请求失败',
-      })
-    } finally {
-      setBusy(false)
-    }
+    void send(text)
   }
 
   return (
@@ -112,7 +91,13 @@ export default function CopilotPanel() {
                   ))}
                 </span>
               ) : (
-                <span className="whitespace-pre-wrap">{m.content}</span>
+                <span className="whitespace-pre-wrap">
+                  {m.content}
+                  {/* 流式输出中：末尾一个闪烁的光标 */}
+                  {m.status === 'streaming' && (
+                    <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-slate-400 align-middle" />
+                  )}
+                </span>
               )}
             </div>
           </div>
