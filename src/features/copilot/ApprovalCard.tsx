@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PendingApproval } from '../../types/chat'
 import { TOOL_LABELS } from './turnReducer'
+import DiffView from '../../components/DiffView'
 
 interface ApprovalCardProps {
   approval: PendingApproval
@@ -85,7 +86,20 @@ export default function ApprovalCard({ approval, onDecide }: ApprovalCardProps) 
         <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">{approval.reason}</p>
       )}
 
-      <InputFields input={approval.input} />
+      {/* 第 31 章：有 diff 就看 diff —— 这正是批准之后会写进磁盘的内容 */}
+      {approval.preview ? (
+        <>
+          <DiffView preview={approval.preview} />
+          <details className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            <summary className="cursor-pointer select-none">查看原始参数</summary>
+            <div className="mt-1">
+              <InputFields input={approval.input} />
+            </div>
+          </details>
+        </>
+      ) : (
+        <InputFields input={approval.input} />
+      )}
 
       <input
         value={note}

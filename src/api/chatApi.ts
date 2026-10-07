@@ -1,4 +1,6 @@
 import { parseSSE } from '../lib/sse'
+import { DiffPreviewSchema } from '../lib/diff'
+import type { DiffPreview } from '../lib/diff'
 import type { ChatMode, WireMessage } from '../types/chat'
 
 /** 后端推过来的事件，前端只认这几种 */
@@ -31,6 +33,8 @@ export type ChatStreamEvent =
       reason?: string
       /** 服务端多久后自动拒绝（毫秒） */
       timeoutMs: number
+      /** 第 31 章：服务端算好的 diff */
+      preview?: DiffPreview
     }
   | {
       type: 'approval_resolved'
@@ -146,6 +150,8 @@ export async function* streamChat(
           input: d.input,
           reason: typeof d.reason === 'string' ? d.reason : undefined,
           timeoutMs: Number(d.timeoutMs) || 120_000,
+          // 格式不对就当没有预览（卡片会退回显示原始参数），别让一个坏数据把页面搞崩
+          preview: DiffPreviewSchema.safeParse(d.preview).data,
         }
         break
       case 'approval_resolved':

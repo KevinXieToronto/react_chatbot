@@ -75,3 +75,17 @@ describe('turnReducer：审批', () => {
     expect(s.toolCalls[0].status).toBe('error')
   })
 })
+
+describe('turnReducer：diff 预览（第 31 章）', () => {
+  it('approval_required 把 preview 记到对应的工具调用上，结束后还在', () => {
+    const preview = { path: 'src/math.js', isNew: false, additions: 1, deletions: 1, tooLarge: false, hunks: [] }
+    const s = run(
+      { type: 'start' },
+      startTool,
+      { type: 'approval_required', approval: { ...approval, preview } },
+      { type: 'approval_resolved', approvalId: 'a1' },
+      { type: 'tool_end', id: 't1', ok: true, summary: '已修改' },
+    )
+    expect(s.toolCalls[0]).toMatchObject({ status: 'success', preview })
+  })
+})

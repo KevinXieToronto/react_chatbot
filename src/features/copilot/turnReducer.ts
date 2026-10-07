@@ -83,8 +83,11 @@ export function turnReducer(state: TurnState, action: TurnAction): TurnState {
     }
 
     case 'approval_required': {
+      // 第 31 章：把 diff 也记到工具调用上，工具结束后还能在消息里展开再看
       const toolCalls = state.toolCalls.map((t) =>
-        t.id === action.approval.toolUseId ? { ...t, status: 'awaiting' as const } : t,
+        t.id === action.approval.toolUseId
+          ? { ...t, status: 'awaiting' as const, preview: action.approval.preview }
+          : t,
       )
       return { ...state, toolCalls, approval: action.approval, phase: 'awaiting_approval' }
     }

@@ -8,6 +8,7 @@ import {
   toRel,
 } from './workspace.js'
 import { runShell } from './shell.js'
+import { buildPreview, hashContent } from './diffPreview.js'
 
 /** read_file 一次最多返回多少行 */
 const MAX_READ_LINES = 400
@@ -286,13 +287,21 @@ const executors = {
     })
   },
 
-  async edit_file(input) {
+  async edit_file(input, ctx) {
     const rel = String(input.path ?? '')
     if (typeof input.new_str === 'string' && input.new_str.length > MAX_WRITE_CHARS) {
       return fail('new_str 太长了')
     }
 
     const { abs, content } = await readTextFile(rel)
+
+    // 防"过期预览"：用户审批时看到的 diff 是基于当时的文件内容算的。
+    // 如果审批期间文件被别人（你自己在编辑器里、另一个进程）改过，
+    // 照样执行就会写进一个用户【没见过】的结果 —— 宁可失败，让模型重新读一遍。
+    if (typeof ctx.expectedHash === 'string' && hashContent(content) !== ctx.expectedHash) {
+      return fail(`文件 ${rel} 在你审批期间被改动过，这次修改没有执行。请重新 read_file 后再改`)
+    }
+
     const result = applyEdit(content, input.old_str, input.new_str)
     if (!result.ok) return fail(result.error)
 
@@ -349,5 +358,55 @@ export async function runCodeTool(name, input, ctx = {}) {
     if (err instanceof WorkspaceError) return fail(err.message)
     console.error(`[code-tool] ${name} 执行出错：`, err)
     return fail('工具执行出错')
+  }
+}
+
+/**
+ * 在【审批之前】把改动算出来（第 31 章）。
+ *
+ * - edit_file / create_file：返回 { ok: true, preview, baseHash }
+ *   preview 是给用户看的 diff，baseHash 是"算 diff 时文件的样子"，执行前要再核对一次
+ * - 改动根本不成立（old_str 匹配 0 处 / 多处、文件已存在…）：返回 { ok: false, error }，
+ *   这种调用直接失败，不用去打扰用户
+ * - 其他工具：返回 null，表示没有可预览的内容
+ */
+export async function previewCodeChange(name, input) {
+  try {
+    if (name === 'edit_file') {
+      const rel = String(input?.path ?? '')
+      const { abs, content } = await readTextFile(rel)
+      const result = applyEdit(content, input.old_str, input.new_str)
+      if (!result.ok) return { ok: false, error: result.error }
+      return {
+        ok: true,
+        preview: buildPreview(toRel(abs), content, result.content),
+        baseHash: hashContent(content),
+      }
+    }
+
+    if (name === 'create_file') {
+      const rel = String(input?.path ?? '')
+      if (typeof input?.content !== 'string') return { ok: false, error: '缺少 content' }
+      if (input.content.length > MAX_WRITE_CHARS) return { ok: false, error: '内容太长了' }
+
+      const abs = await resolveInWorkspace(rel)
+      const exists = await fs.stat(abs).then(
+        () => true,
+        () => false,
+      )
+      if (exists) return { ok: false, error: `文件已存在：${rel}。修改已有文件请用 edit_file` }
+
+      return {
+        ok: true,
+        preview: buildPreview(toRel(abs), '', input.content, { isNew: true }),
+        // 新文件没有"原内容"。执行时靠 writeFile 的 'wx' 保证它仍然不存在
+        baseHash: null,
+      }
+    }
+
+    return null
+  } catch (err) {
+    if (err instanceof WorkspaceError) return { ok: false, error: err.message }
+    throw err
   }
 }

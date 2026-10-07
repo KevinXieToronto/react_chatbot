@@ -1,3 +1,5 @@
+import type { DiffPreview } from '../lib/diff'
+
 /** 一条消息在 UI 上的状态 */
 export type MessageStatus =
   | 'streaming' // 正在流式输出中
@@ -14,6 +16,8 @@ export interface ToolCall {
   status: 'running' | 'awaiting' | 'success' | 'error'
   /** 给用户看的一句话总结，不是原始 JSON */
   summary?: string
+  /** 审批时看到的改动（第 31 章）。工具结束后还能展开再看一次 */
+  preview?: DiffPreview
 }
 
 export interface ChatMessage {
@@ -39,6 +43,8 @@ export interface PendingApproval {
   input: unknown
   /** 服务端给的一句话影响说明 */
   reason?: string
+  /** 服务端在审批前算好的 diff（第 31 章）。run_command 这类工具没有 */
+  preview?: DiffPreview
   /** 什么时候自动过期（本地时间戳，毫秒） */
   expiresAt: number
 }

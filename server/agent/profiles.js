@@ -1,6 +1,6 @@
 import { SYSTEM_PROMPT } from './openai.js'
 import { toolDefinitions, runTool, isMutatingTool } from './tools.js'
-import { codeToolDefinitions, runCodeTool } from './codeTools.js'
+import { codeToolDefinitions, runCodeTool, previewCodeChange } from './codeTools.js'
 import { mockTaskAgent } from './mockTaskAgent.js'
 import { mockCodeAgent } from './mockCodeAgent.js'
 
@@ -36,6 +36,8 @@ const PROFILES = {
     system: CODE_SYSTEM_PROMPT,
     tools: codeToolDefinitions,
     runTool: runCodeTool,
+    // 审批前先算 diff（第 31 章）。任务模式没有这一项
+    preview: previewCodeChange,
     invalidation: (name, result) =>
       result.changedPath || result.touchedFiles
         ? { resource: 'files', op: name, path: result.changedPath }

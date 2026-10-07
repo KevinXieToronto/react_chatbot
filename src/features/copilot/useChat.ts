@@ -205,6 +205,7 @@ export function useChat(session: ChatSession, { mode = 'tasks', onInvalidate }: 
                   name: evt.name,
                   input: evt.input,
                   reason: evt.reason,
+                  preview: evt.preview,
                   // 用本地时间换算：服务端和浏览器的时钟不一定对得上
                   expiresAt: Date.now() + evt.timeoutMs,
                 },

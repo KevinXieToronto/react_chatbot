@@ -20,7 +20,7 @@ function deniedResult(decision) {
 
 /**
  * 创建一个"带事件的工具执行器"：
- *   发 tool_start →（需要的话）等用户审批 → 真正执行 → 发 tool_end →（数据变了）发 invalidate
+ *   发 tool_start →（需要的话）算 diff、等用户审批 → 真正执行 → 发 tool_end →（数据变了）发 invalidate
  *
  * 真实 Agent 循环和 Mock Agent 都通过它执行工具，
  * 所以审批这道关只需要写在这一个地方，谁也绕不过去。
@@ -39,11 +39,22 @@ export function createToolRunner(res, profile, signal, { delayMs = 0 } = {}) {
     if (delayMs) await sleep(delayMs)
     if (signal.aborted) throw new DOMException('已中止', 'AbortError')
 
+    // 执行时要核对的文件指纹（第 31 章）。undefined = 不核对
+    let expectedHash
+
     // ── 人在回路：需要批准的工具，停在这里等用户 ──────────────
     if (needsApproval(name)) {
+      // 第 31 章：先把改动算出来。改动本身不成立的话直接失败，不打扰用户
+      const plan = profile.preview ? await profile.preview(name, input) : null
+      if (plan && !plan.ok) {
+        const result = { ok: false, error: plan.error, summary: `失败：${plan.error}` }
+        sse(res, 'tool_end', { id, ok: false, summary: result.summary })
+        return result
+      }
+
       // 用户停止 / 断开时这里会 reject(AbortError)，一路抛到路由里
       const decision = await requestApproval(
-        { toolUseId: id, name, input, reason: approvalReason(name, input) },
+        { toolUseId: id, name, input, reason: approvalReason(name, input), preview: plan?.preview },
         { emit: (event, data) => sse(res, event, data), signal },
       )
 
@@ -52,9 +63,11 @@ export function createToolRunner(res, profile, signal, { delayMs = 0 } = {}) {
         sse(res, 'tool_end', { id, ok: false, summary: result.summary })
         return result
       }
+
+      expectedHash = plan?.baseHash ?? undefined
     }
 
-    const result = await profile.runTool(name, input, { signal })
+    const result = await profile.runTool(name, input, { signal, expectedHash })
 
     sse(res, 'tool_end', { id, ok: result.ok, summary: result.summary })
 

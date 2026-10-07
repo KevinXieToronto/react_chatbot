@@ -17,11 +17,7 @@ function refusedText(r) {
     : '好的，这一步我不做了。如果你希望换一种改法，直接告诉我。'
 }
 
-/**
- * 从 node --test 的输出里挑出每个用例的结果和汇总行。
- * 依赖 spec 格式（✔ / ✖ / ℹ）：Node 22 输出不是终端时默认是 TAP，
- * 所以 workspace/package.json 的 test 脚本写了 --test-reporter=spec（第 29 章）。
- */
+/** 从 node --test 的输出里挑出每个用例的结果和汇总行 */
 function testSummary(text) {
   const picked = []
   for (const line of text.split(/\r?\n/)) {
@@ -40,6 +36,7 @@ function testSummary(text) {
  *
  * 第 30 章起，create_file / edit_file / run_command 会先停下来等你批准；
  * 被拒绝时工具返回 { denied: true, note }，剧本据此"改变主意"，模拟模型的反应。
+ * 第 31 章起，改动在审批前就算好了：匹配不唯一这种"根本改不成"的编辑，不会弹审批卡片。
  *
  * @param {{ res, signal, callTool }} ctx
  * @param {string} userText
@@ -133,6 +130,38 @@ export async function mockCodeAgent({ res, signal, callTool }, userText) {
     )
   }
 
+  // ③' 多行修改："给 average 加空数组保护"（第 31 章用来看 diff）
+  if (/空数组|average/i.test(t)) {
+    const r1 = await call('read_file', { path: 'src/math.js' })
+    if (!r1.ok) return say(`读文件失败：${r1.error}`)
+    if (r1.data.includes('nums.length === 0')) {
+      return say('`average` 里已经有空数组的判断了，不用再加。')
+    }
+
+    if (!(await say('`average([])` 现在会返回 `NaN`（0 / 0）。我在前面加一个判断：\n\n'))) return false
+    const r2 = await call('edit_file', {
+      path: 'src/math.js',
+      old_str: 'export function average(nums) {\n  return sum(nums) / nums.length\n}',
+      new_str:
+        'export function average(nums) {\n' +
+        '  // 空数组没有平均值，返回 0 而不是 NaN\n' +
+        '  if (nums.length === 0) return 0\n' +
+        '  return sum(nums) / nums.length\n' +
+        '}',
+    })
+    if (r2.denied) return say(refusedText(r2))
+    return say(r2.ok ? '✅ 加好了，`average([])` 现在返回 0。' : `没改成：${r2.error}`)
+  }
+
+  // ③'' 一个很大的新文件：演示"diff 太大"的兜底显示
+  if (/大文件/.test(t)) {
+    const lines = Array.from({ length: 3000 }, (_, i) => `  ${i},`)
+    const content = `// 自动生成的数据文件\nexport const data = [\n${lines.join('\n')}\n]\n`
+    const r = await call('create_file', { path: 'src/big.js', content })
+    if (r.denied) return say(refusedText(r))
+    return say(r.ok ? `${r.summary}。` : `没建成：${r.error}`)
+  }
+
   // ④ 跑测试："跑一下测试"
   if (/测试|跑一下|运行|npm|run/i.test(t)) {
     const r = await call('run_command', { command: 'npm test' })
@@ -171,7 +200,8 @@ export async function mockCodeAgent({ res, signal, callTool }, userText) {
 
   return say(
     '（Mock 模式）我是代码助手，只能读写 `workspace/` 里的文件。试试：\n\n' +
-      '· "列出文件"\n· "看看 src/math.js"\n· "搜索 nums"\n· "帮我修复 bug"\n· "跑一下测试"\n' +
-      '· "新建文件 src/clamp.js"\n· "读一下 ../server/.env"（演示沙箱）\n· "用命令看看 ../server/.env"（演示命令为什么必须审批）',
+      '· "列出文件"\n· "看看 src/math.js"\n· "搜索 nums"\n· "帮我修复 bug"\n· "给 average 加空数组保护"\n' +
+      '· "跑一下测试"\n· "新建文件 src/clamp.js"\n· "生成一个大文件"\n' +
+      '· "读一下 ../server/.env"（演示沙箱）\n· "用命令看看 ../server/.env"（演示命令为什么必须审批）',
   )
 }
