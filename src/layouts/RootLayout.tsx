@@ -2,16 +2,20 @@ import { NavLink, Outlet, useLocation } from 'react-router'
 import ErrorBoundary from '../components/ErrorBoundary'
 import ThemeToggle from '../components/ThemeToggle'
 import { useTasks } from '../api/taskQueries'
+import CopilotButton from '../features/copilot/CopilotButton'
+import CopilotPanel from '../features/copilot/CopilotPanel'
 
-const NAV_ITEMS = [
+// 顶部导航项配置
+const NAV_ITEMS = [ // 导航项配置
   { to: '/', label: '看板', end: true },
   { to: '/stats', label: '统计', end: false },
   { to: '/settings', label: '设置', end: false },
 ]
 
+// 根布局：导航栏、主题切换与页面出口
 export default function RootLayout() {
-  const location = useLocation()
-  const { data: tasks = [] } = useTasks()
+  const location = useLocation() // 当前路由，用于重置错误边界
+  const { data: tasks = [] } = useTasks() // 读取任务用于显示总数
   const taskCount = tasks.length
 
   return (
@@ -19,7 +23,6 @@ export default function RootLayout() {
       <header className="border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
           <div className="flex items-center gap-6">
-            {/* Logo 用 Link 跳回首页 */}
             <NavLink to="/" className="flex items-center gap-2">
               <span className="grid h-7 w-7 place-items-center rounded bg-blue-600 text-sm font-bold text-white">
                 T
@@ -34,7 +37,6 @@ export default function RootLayout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
-                  // end 让 "/" 只在精确匹配时才高亮，否则它在每个页面都是 active
                   end={item.end}
                   className={({ isActive }) =>
                     isActive
@@ -57,16 +59,14 @@ export default function RootLayout() {
         </div>
       </header>
 
-      {/* 子路由渲染在这里。切换页面时 header 不会重新挂载。 */}
       <main className="mx-auto max-w-4xl px-4 py-6">
-        {/*
-          resetKeys 传当前路径：用户切到别的页面时，错误状态自动清除。
-          不然一个页面崩了之后，切走再切回来还是错误界面。
-        */}
         <ErrorBoundary resetKeys={[location.pathname]}>
           <Outlet />
         </ErrorBoundary>
       </main>
+
+      <CopilotButton />
+      <CopilotPanel />
     </div>
   )
 }
