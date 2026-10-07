@@ -1,26 +1,24 @@
 import { useDeferredValue, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
-import { useMessages } from '../../store/copilotStore'
+import type { ChatMessage } from '../../types/chat'
 import MessageBubble from './MessageBubble'
 
 interface MessageListProps {
+  /** 第 29 章起由调用方传入，不再直接读 copilotStore —— 这样代码助手也能复用 */
+  messages: ChatMessage[]
   onRetry?: (messageId: string) => void
+  /** 没有消息时显示的提示 */
+  emptyHint?: ReactNode
 }
 
-export default function MessageList({ onRetry }: MessageListProps) {
-  // 当前会话的消息（第 28 章起按会话存放）
-  const messages = useMessages()
-
+export default function MessageList({ messages, onRetry, emptyHint }: MessageListProps) {
   const [keyword, setKeyword] = useState('')
 
   /**
    * useDeferredValue 是 useTransition 的"值版本"。
    * 它返回一个"滞后的" keyword —— 输入框用 keyword（立刻更新），
    * 过滤用 deferredKeyword（低优先级，可以被打断）。
-   *
-   * 和 useTransition 的区别：
-   * - useTransition：你手上有 setState，把它包起来
-   * - useDeferredValue：值是别人给你的（props / 或者你想少写点代码）
    */
   const deferredKeyword = useDeferredValue(keyword)
   const isFiltering = keyword !== deferredKeyword
@@ -31,8 +29,8 @@ export default function MessageList({ onRetry }: MessageListProps) {
     return messages.filter((m) => m.content.toLowerCase().includes(kw))
   }, [messages, deferredKeyword])
 
-  // 滚动依赖：消息数、最后一条的长度 / 状态 / 工具状态（见第 23 章）
   const last = messages.at(-1)
+  // 工具调用的数量和状态也算"内容变化"：工具卡片出现时同样要滚到底
   const toolSig = last?.toolCalls?.map((t) => t.status).join(',') ?? ''
   const scrollDep = `${messages.length}:${last?.content.length ?? 0}:${last?.status}:${toolSig}`
 
@@ -64,8 +62,12 @@ export default function MessageList({ onRetry }: MessageListProps) {
       >
         {messages.length === 0 ? (
           <div className="pt-10 text-center text-sm text-slate-400">
-            <p>还没有对话</p>
-            <p className="mt-1 text-xs">试试："我还有哪些任务没做完？"</p>
+            {emptyHint ?? (
+              <>
+                <p>还没有对话</p>
+                <p className="mt-1 text-xs">试试："我还有哪些任务没做完？"</p>
+              </>
+            )}
           </div>
         ) : visible.length === 0 ? (
           <p className="pt-10 text-center text-sm text-slate-400">没有匹配的消息</p>

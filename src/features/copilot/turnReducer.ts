@@ -11,10 +11,9 @@ export type TurnPhase =
   | 'aborted'
 
 /**
- * 注意这里【没有】文本内容：文本走第 22 章的 rAF 缓冲直接写进 store 里的消息，
+ * 注意这里【没有】文本内容（第 25 章）：网页端的文本走第 22 章的 rAF 缓冲直接写进 store 里的消息，
  * reducer 只管"现在处在哪个阶段、有哪些工具在跑"。
- * 要是把每个 token 也拼进 reducer，每来一个 token 就多一次整个面板的重渲染，
- * 等于把第 22 章省下来的渲染又加了回去。
+ * 要是把每个 token 也拼进 reducer，每来一个 token 就多一次整个面板的重渲染。
  */
 export interface TurnState {
   phase: TurnPhase
@@ -39,7 +38,7 @@ export type TurnAction =
 
 /**
  * 纯函数：不改入参、不做副作用、同输入同输出。
- * 因为是纯的，可以直接写单元测试，完全不用渲染组件（第 19 章）。
+ * 因为是纯的，可以直接写单元测试，完全不用渲染组件。
  */
 export function turnReducer(state: TurnState, action: TurnAction): TurnState {
   switch (action.type) {
@@ -51,8 +50,7 @@ export function turnReducer(state: TurnState, action: TurnAction): TurnState {
       // 收到文本就说明不在"纯思考"了。
       // 但如果还有工具在跑，阶段仍然是 tooling（模型可能边说边调）
       const phase = hasRunningTool(state.toolCalls) ? 'tooling' : 'streaming'
-      // 阶段没变就原样返回同一个对象 —— 调用方可以据此判断"什么都没变"，省掉一次渲染。
-      // （第一个 delta 会把 thinking 变成 streaming，之后的几百个 delta 都走这里）
+      // 阶段没变就原样返回同一个对象 —— 调用方据此判断"什么都没变"，省掉一次渲染
       return phase === state.phase ? state : { ...state, phase }
     }
 
@@ -97,7 +95,7 @@ export function turnReducer(state: TurnState, action: TurnAction): TurnState {
       }
 
     default: {
-      // 穷尽性检查（第 11 章）：以后加了新 action 忘了处理，这里会编译报错
+      // 穷尽性检查：以后加了新 action 忘了处理，这里会编译报错
       const _exhaustive: never = action
       return _exhaustive
     }
@@ -130,4 +128,10 @@ export const TOOL_LABELS: Record<string, string> = {
   create_task: '创建任务',
   update_task: '更新任务',
   delete_task: '删除任务',
+  // 代码助手（第 29 章）
+  list_files: '列出文件',
+  read_file: '读取文件',
+  search: '搜索代码',
+  create_file: '新建文件',
+  edit_file: '修改文件',
 }

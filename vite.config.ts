@@ -1,5 +1,5 @@
-/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
+import { configDefaults } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { visualizer } from 'rollup-plugin-visualizer'
@@ -69,6 +69,9 @@ export default defineConfig({
     // 每个测试文件跑之前先执行这个
     setupFiles: ['./src/test/setup.ts'],
     css: false, // 测试不需要处理 CSS，能快不少
+    // workspace/ 是给代码助手练手的独立小项目，它的测试用 node --test 跑，
+    // 不能被 Vitest 当成我们自己的测试收集进来（第 29 章）
+    exclude: [...configDefaults.exclude, 'workspace/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

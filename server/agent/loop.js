@@ -1,34 +1,37 @@
-import { getClient, MODEL, SYSTEM_PROMPT } from './openai.js'
-import { openaiTools, runTool } from './tools.js'
-
-/** 安全上限：防止模型陷入无限工具调用循环 */
-const MAX_TURNS = 8
+import { getClient, MODEL } from './openai.js'
 
 /**
- * 跑完整的 tool use 循环，通过回调把每一步汇报出去。
+ * 跑完整的 tool use 循环。
+ *
+ * 和第 25 章相比，系统提示词、工具列表、是否并行都从 profile 里取，
+ * 执行工具统一交给 callTool（它负责发 tool_start / tool_end / invalidate 事件）。
+ * 这样同一个循环既能跑任务助手，也能跑代码助手。
  *
  * @param {Array} messages 对话历史（只有 role/content）
- * @param {object} handlers { onText, onToolStart, onToolEnd }
+ * @param {object} profile { system, tools, parallelTools, maxTurns }
+ * @param {object} handlers { onText, callTool }
  * @param {AbortSignal} signal
  */
-export async function runAgentLoop(messages, handlers, signal) {
+export async function runAgentLoop(messages, profile, handlers, signal) {
   const client = getClient()
 
   // 这个数组会随着循环不断增长：assistant 的 tool_calls、role 为 tool 的工具结果。
   // OpenAI 的系统提示词是第一条 system 消息
   const conversation = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: profile.system },
     ...messages.map((m) => ({ role: m.role, content: m.content })),
   ]
 
-  // 用量要【累加】：每一轮都是一次独立的 API 调用、各自计费，
-  // 而且后一轮的输入包含前面所有轮次。只报最后一轮的话，多步任务会少算好几倍
+  // profile 里的工具定义是教程（Claude）的格式，这里统一转成 OpenAI 的格式
+  const tools = toOpenAITools(profile.tools)
+
+  // 用量要【累加】：每一轮都是一次独立的 API 调用、各自计费（第 26 章）
   const usage = { input_tokens: 0, output_tokens: 0 }
 
   // 之前的轮次有没有输出过文字（用来在两轮文字之间补空行）
   let hasText = false
 
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
+  for (let turn = 0; turn < profile.maxTurns; turn++) {
     if (signal?.aborted) return { stopReason: 'aborted', usage }
 
     // 用户中止时同时取消对模型的请求：直接把 signal 交给 SDK
@@ -41,7 +44,7 @@ export async function runAgentLoop(messages, handlers, signal) {
         // ⚠️ gpt-5.6-luna 在 /v1/chat/completions 里不能同时用推理和函数工具，
         //    不关掉推理会直接 400（要保留推理，得改用 /v1/responses 接口）
         reasoning_effort: 'none',
-        tools: openaiTools,
+        tools,
         messages: conversation,
       },
       { signal },
@@ -54,9 +57,7 @@ export async function runAgentLoop(messages, handlers, signal) {
     // 按 index 把它们拼回完整的调用
     const calls = []
 
-    // 文本增量实时推给前端。
-    // 模型常常先说一句"我查一下"，调完工具在下一轮再接着说 —— 两轮的文字在前端
-    // 是拼在同一个气泡里的，中间不补个空行就会粘成一句话
+    // 文本增量实时推给前端。两轮的文字拼在同一个气泡里，中间补个空行（第 26 章）
     let turnHasText = false
 
     for await (const chunk of stream) {
@@ -116,42 +117,38 @@ export async function runAgentLoop(messages, handlers, signal) {
       })),
     })
 
-    // 并行执行所有工具调用。
-    // 模型一轮可能要求调多个工具，串行跑会慢很多。
-    const results = await Promise.all(
-      toolCalls.map(async (call) => {
-        // arguments 是模型生成的 JSON 字符串，可能不合法 —— 解析失败也要回一个结果给模型
-        let input
-        let result
-        try {
-          input = call.arguments ? JSON.parse(call.arguments) : {}
-        } catch {
-          input = {}
-          result = { ok: false, error: '参数不是合法的 JSON', summary: '失败：参数不是合法的 JSON' }
-        }
-
-        handlers.onToolStart({ id: call.id, name: call.name, input })
-
-        result ??= await runTool(call.name, input)
-
-        // 多传 name 和 task：路由要靠它们决定发不发 invalidate 事件（第 26 章）
-        handlers.onToolEnd({
-          id: call.id,
-          name: call.name,
-          ok: result.ok,
-          summary: result.summary,
-          task: result.task,
-        })
-
-        // 失败的工具也必须返回结果。
-        // 漏掉任何一个 tool_call_id 的结果，下一次请求会直接 400。
+    const runOne = async (call) => {
+      // arguments 是模型生成的 JSON 字符串，可能不合法。
+      // 不合法就不执行（参数都读不懂，行为不可预期），把原因告诉模型让它重来
+      let input
+      try {
+        input = call.arguments ? JSON.parse(call.arguments) : {}
+      } catch {
         return {
           role: 'tool',
           tool_call_id: call.id,
-          content: JSON.stringify(result.ok ? result.data : { error: result.error }),
+          content: JSON.stringify({ error: '参数不是合法的 JSON，请重新调用' }),
         }
-      }),
-    )
+      }
+
+      const result = await handlers.callTool(call.id, call.name, input)
+      // 失败的工具也必须返回结果。
+      // 漏掉任何一个 tool_call_id 的结果，下一次请求会直接 400。
+      return { role: 'tool', tool_call_id: call.id, content: toResultContent(result) }
+    }
+
+    let results
+    if (profile.parallelTools) {
+      // 任务工具互不影响，并行跑更快
+      results = await Promise.all(toolCalls.map(runOne))
+    } else {
+      // 编码工具一个一个来：后一个可能依赖前一个的结果（先建文件再改它）
+      results = []
+      for (const call of toolCalls) {
+        if (signal?.aborted) return { stopReason: 'aborted', usage }
+        results.push(await runOne(call))
+      }
+    }
 
     // OpenAI 的工具结果是【每个调用一条】role 为 tool 的消息，
     // 和 Claude 把所有 tool_result 放进同一条 user 消息不一样
@@ -159,4 +156,27 @@ export async function runAgentLoop(messages, handlers, signal) {
   }
 
   return { stopReason: 'max_turns', usage }
+}
+
+/**
+ * 工具结果的 content 直接给字符串。
+ * read_file 这种本来就是文本的结果原样给，别再 JSON.stringify 一遍 ——
+ * 否则换行全变成 \n 转义，模型读代码会很别扭。
+ * OpenAI 的 tool 消息没有 is_error 字段，失败就用 { error } 告诉模型。
+ */
+function toResultContent(result) {
+  if (!result.ok) return JSON.stringify({ error: result.error })
+  return typeof result.data === 'string' ? result.data : JSON.stringify(result.data)
+}
+
+/**
+ * 教程（Claude）格式 { name, description, input_schema }
+ * → OpenAI 格式 { type: 'function', function: { name, description, parameters } }。
+ * JSON Schema 本身完全一样，所以 tools.js / codeTools.js 不用改。
+ */
+function toOpenAITools(defs) {
+  return defs.map((t) => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.input_schema },
+  }))
 }

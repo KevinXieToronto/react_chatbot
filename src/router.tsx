@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { createBrowserRouter } from 'react-router'
 import RootLayout from './layouts/RootLayout'
 import BoardPage from './pages/BoardPage'
@@ -8,11 +9,12 @@ import PageLoading from './components/PageLoading'
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <RootLayout />,
-    // 路由级 lazy 不走 <Suspense>：导航时 React Router 先把代码下载完再切页面，
-    // 下载期间界面停在当前页。只有"第一次打开就落在懒加载页面上"（比如直接访问 /stats）
-    // 时才需要占位，这时渲染的是 hydrateFallbackElement。
-    hydrateFallbackElement: <PageLoading />,
+    element: (
+      // Suspense 包在最外层：所有懒加载的子路由共用这个 fallback
+      <Suspense fallback={<PageLoading />}>
+        <RootLayout />
+      </Suspense>
+    ),
     // 这一层及其所有子路由抛出的错误都会渲染 ErrorPage，
     // 而不是让整个应用白屏
     errorElement: <ErrorPage />,
@@ -32,6 +34,14 @@ export const router = createBrowserRouter([
         path: 'stats',
         lazy: async () => {
           const { default: Component } = await import('./pages/StatsPage')
+          return { Component }
+        },
+      },
+      {
+        // 第 29 章：代码助手。里面有 Markdown 渲染等重依赖，同样懒加载
+        path: 'code',
+        lazy: async () => {
+          const { default: Component } = await import('./pages/CodePage')
           return { Component }
         },
       },

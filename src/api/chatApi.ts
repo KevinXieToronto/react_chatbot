@@ -1,5 +1,5 @@
 import { parseSSE } from '../lib/sse'
-import type { WireMessage } from '../types/chat'
+import type { ChatMode, WireMessage } from '../types/chat'
 
 /** 后端推过来的事件，前端只认这几种 */
 export type ChatStreamEvent =
@@ -9,9 +9,11 @@ export type ChatStreamEvent =
   | {
       type: 'invalidate'
       resource: string
-      /** 改数据的工具名：create_task / update_task / delete_task */
       op: string
+      /** resource === 'tasks' 时：变更后的任务 */
       task?: Record<string, unknown>
+      /** resource === 'files' 时：被改动的文件路径 */
+      path?: string
     }
   | {
       type: 'done'
@@ -20,8 +22,13 @@ export type ChatStreamEvent =
     }
   | { type: 'error'; message: string; kind?: string }
 
+/** 数据变更事件，单独导出给 onInvalidate 回调用 */
+export type InvalidateEvent = Extract<ChatStreamEvent, { type: 'invalidate' }>
+
 interface SendOptions {
   signal?: AbortSignal
+  /** 对话模式，默认 tasks（第 29 章新增） */
+  mode?: ChatMode
 }
 
 /**
@@ -34,19 +41,18 @@ interface SendOptions {
  */
 export async function* streamChat(
   messages: WireMessage[],
-  { signal }: SendOptions = {},
+  { signal, mode = 'tasks' }: SendOptions = {},
 ): AsyncGenerator<ChatStreamEvent> {
   // 用第 20 章配的 VITE_API_BASE_URL 拼地址，而不是硬编码 '/api'——
   // 生产环境这个变量是完整的后端域名，硬编码 '/api' 会打到前端自己的域名上。
   const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, mode }),
     signal,
   })
 
   // 出错时后端还没开始流，返回的是普通 JSON
-  // 限流（429）和输入校验（400）都是在开流之前用普通 JSON 返回的，kind 也要从这里取
   if (!res.ok) {
     let message = `请求失败（${res.status}）`
     let kind: string | undefined
@@ -95,6 +101,7 @@ export async function* streamChat(
           resource: String(d.resource ?? ''),
           op: String(d.op ?? ''),
           task: d.task as Record<string, unknown> | undefined,
+          path: typeof d.path === 'string' ? d.path : undefined,
         }
         break
       case 'done':

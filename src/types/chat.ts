@@ -1,11 +1,11 @@
 /** 一条消息在 UI 上的状态 */
 export type MessageStatus =
-  | 'streaming' // 正在流式输出中（第 22 章用）
+  | 'streaming' // 正在流式输出中
   | 'complete' // 完成
   | 'error' // 出错了
-  | 'aborted' // 被用户中止（第 24 章用）
+  | 'aborted' // 被用户中止
 
-/** 工具调用的可视化状态（第 25 章用） */
+/** 工具调用的可视化状态 */
 export interface ToolCall {
   id: string
   name: string
@@ -25,7 +25,7 @@ export interface ChatMessage {
   toolCalls?: ToolCall[]
   /** 出错时的信息 */
   error?: string
-  /** 错误类型：retryable / input / config（第 28 章） */
+  /** 错误类型：retryable / input / config */
   errorKind?: string
 }
 
@@ -33,6 +33,27 @@ export interface ChatMessage {
 export interface WireMessage {
   role: 'user' | 'assistant'
   content: string
+}
+
+/** 对话模式：决定后端用哪套工具和系统提示词 */
+export type ChatMode = 'tasks' | 'code'
+
+/**
+ * useChat 需要的"消息存储"接口。
+ *
+ * Copilot 的消息存在 copilotStore（多会话、持久化），
+ * 代码助手的消息存在 codeStore（单会话、不持久化）。
+ * useChat 只依赖这个接口，不关心消息到底存在哪。
+ */
+export interface ChatSession {
+  messages: ChatMessage[]
+  /** 现取最新的消息，不经过渲染闭包（retry 截断后立刻 send，闭包里还是旧的）。必须是稳定引用 */
+  getMessages: () => ChatMessage[]
+  addMessage: (message: ChatMessage) => void
+  patchMessage: (id: string, patch: Partial<ChatMessage>) => void
+  truncateFrom: (messageId: string) => void
+  setBusy: (busy: boolean) => void
+  addUsage?: (input: number, output: number) => void
 }
 
 export function toWire(messages: ChatMessage[]): WireMessage[] {

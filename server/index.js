@@ -5,11 +5,13 @@ import express from 'express'
 import cors from 'cors'
 import { tasksRouter } from './routes/tasks.js'
 import { chatRouter } from './routes/chat.js'
+import { filesRouter } from './routes/files.js'
 import { isMock } from './agent/openai.js'
+import { workspaceRoot } from './agent/workspace.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
 // 默认只监听本机回环地址：同一个局域网里的其他机器连不上。
-// 部署时才显式设 HOST=0.0.0.0（而且必须先有认证，见下方说明）
+// 部署时才显式设 HOST=0.0.0.0（而且必须先有认证，见第 21 章）
 const HOST = process.env.HOST ?? '127.0.0.1'
 
 /** 读一个逗号分隔的环境变量，变成去掉空白的数组 */
@@ -22,7 +24,7 @@ function listFromEnv(name) {
 
 const app = express()
 
-// ① Host 头白名单：防 DNS rebinding（原理见下方说明）
+// ① Host 头白名单：防 DNS rebinding（第 21 章）
 const allowedHosts = new Set([
   `localhost:${PORT}`,
   `127.0.0.1:${PORT}`,
@@ -63,6 +65,7 @@ app.use((req, _res, next) => {
 
 app.use('/tasks', tasksRouter)
 app.use('/chat', chatRouter)
+app.use('/files', filesRouter)
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, mock: isMock() })
@@ -71,5 +74,6 @@ app.get('/health', (_req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`\n  TaskFlow 后端已启动：http://localhost:${PORT}`)
   console.log(`  监听地址：${HOST}${HOST === '127.0.0.1' ? '（只有本机能访问）' : ''}`)
-  console.log(`  模式：${isMock() ? 'Mock（不调用真实 API）' : '真实 OpenAI API'}\n`)
+  console.log(`  模式：${isMock() ? 'Mock（不调用真实 API）' : '真实 OpenAI API'}`)
+  console.log(`  代码助手工作区：${workspaceRoot()}\n`)
 })

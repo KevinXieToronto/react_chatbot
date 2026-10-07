@@ -10,3 +10,12 @@ export const taskKeys = {
   /** 单条任务 */
   detail: (id: string) => [...taskKeys.all, 'detail', id] as const,
 }
+
+/** 代码助手工作区里的文件（第 29 章） */
+export const fileKeys = {
+  all: ['files'] as const,
+  /** 文件列表 */
+  tree: () => [...fileKeys.all, 'tree'] as const,
+  /** 单个文件的内容 */
+  content: (path: string) => [...fileKeys.all, 'content', path] as const,
+}
