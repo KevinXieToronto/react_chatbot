@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import type { ChatMessage } from '../../types/chat'
 import ToolCallList from './ToolCallList'
+import Markdown from './Markdown'
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -36,16 +37,19 @@ const MessageBubble = memo(function MessageBubble({ message: m }: MessageBubbleP
               />
             ))}
           </span>
+        ) : isUser ? (
+          // 用户消息不渲染 Markdown —— 用户打的星号就该显示成星号
+          <span className="whitespace-pre-wrap break-words">{m.content}</span>
         ) : (
-          <span className="whitespace-pre-wrap break-words">
-            {m.content}
+          <div className="break-words">
+            <Markdown content={m.content} streaming={m.status === 'streaming'} />
             {m.status === 'streaming' && (
               <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-slate-400 align-middle" />
             )}
             {m.status === 'aborted' && (
               <span className="ml-1 text-xs text-slate-400">（已停止）</span>
             )}
-          </span>
+          </div>
         )}
       </div>
     </div>
