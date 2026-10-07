@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import type { ChatMessage } from '../../types/chat'
+import ToolCallList from './ToolCallList'
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -9,7 +10,7 @@ const MessageBubble = memo(function MessageBubble({ message: m }: MessageBubbleP
   const isUser = m.role === 'user'
 
   return (
-    // msg-item 这个 class 在本章第六节用到（content-visibility 优化）
+    // msg-item：第 23 章的 content-visibility 优化
     <div className={isUser ? 'msg-item flex justify-end' : 'msg-item flex justify-start'}>
       <div
         className={
@@ -18,6 +19,11 @@ const MessageBubble = memo(function MessageBubble({ message: m }: MessageBubbleP
             : 'max-w-[85%] rounded-2xl rounded-bl-sm bg-slate-100 px-3 py-2 text-sm text-slate-700 dark:bg-slate-700 dark:text-slate-100'
         }
       >
+        {/* 工具调用显示在文本上方 */}
+        {!isUser && m.toolCalls && m.toolCalls.length > 0 && (
+          <ToolCallList toolCalls={m.toolCalls} />
+        )}
+
         {m.status === 'error' ? (
           <span className="text-rose-600 dark:text-rose-400">⚠ {m.error}</span>
         ) : m.status === 'streaming' && !m.content ? (

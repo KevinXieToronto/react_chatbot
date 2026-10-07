@@ -13,12 +13,9 @@ export default function CopilotPanel() {
   const [input, setInput] = useState('')
 
   // Hook 必须写在提前 return 之前（见第 22 章）
-  const { send, stop } = useChat()
+  const { send, stop, phaseText } = useChat()
 
-  // 面板一关就停止生成。
-  // 关面板有两个入口：面板里的 ✕，和右下角的悬浮按钮（CopilotButton 里调的是 toggle）。
-  // 与其在每个入口都记得调 stop()，不如直接"跟着 open 走"：open 变成 false 就停。
-  // 注意面板关着时组件并没有卸载（只是 return null），所以 useChat 里"卸载时 abort"的那个 effect 管不到这里。
+  // 面板一关就停止生成（见第 24 章）
   useEffect(() => {
     if (!open) stop()
   }, [open, stop])
@@ -67,16 +64,17 @@ export default function CopilotPanel() {
 
       <MessageList />
 
-      {/* 正在输出时，输入框上方浮出"停止生成" */}
+      {/* 正在输出时：左边是当前阶段，右边是停止按钮 */}
       {busy && (
-        <div className="flex justify-center border-t border-slate-100 py-2 dark:border-slate-700">
+        <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 dark:border-slate-700">
+          <span className="truncate text-xs text-slate-400">{phaseText ?? '正在回答…'}</span>
           <button
             type="button"
             onClick={stop}
-            className="flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
           >
             <span className="h-2 w-2 rounded-sm bg-slate-500" />
-            停止生成
+            停止
           </button>
         </div>
       )}
