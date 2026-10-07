@@ -1,3 +1,4 @@
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
 import { useCopilotStore } from '../../store/copilotStore'
 import MessageBubble from './MessageBubble'
@@ -5,35 +6,69 @@ import MessageBubble from './MessageBubble'
 export default function MessageList() {
   const messages = useCopilotStore((s) => s.messages)
 
-  // 依赖用一个"内容签名"，只要列表底部可能变高，它就要变：
-  // - 消息数变化 = 新增了一条
-  // - 最后一条长度变化 = 流式输出中
-  // - 最后一条状态变化 = 出错提示、"（已停止）"出现了
-  // - 最后一条的工具状态变化 = 第 25 章的工具卡片出现 / 更新了（现在还没有，先写上）
-  // 直接传 messages 数组也行，但那样每次 patch 都是新数组引用，
-  // 传这个组合更明确地表达了"我关心什么变化"。
+  const [keyword, setKeyword] = useState('')
+
+  /**
+   * useDeferredValue 是 useTransition 的"值版本"。
+   * 它返回一个"滞后的" keyword —— 输入框用 keyword（立刻更新），
+   * 过滤用 deferredKeyword（低优先级，可以被打断）。
+   *
+   * 和 useTransition 的区别：
+   * - useTransition：你手上有 setState，把它包起来
+   * - useDeferredValue：值是别人给你的（props / 或者你想少写点代码）
+   */
+  const deferredKeyword = useDeferredValue(keyword)
+  const isFiltering = keyword !== deferredKeyword
+
+  const visible = useMemo(() => {
+    const kw = deferredKeyword.trim().toLowerCase()
+    if (!kw) return messages
+    return messages.filter((m) => m.content.toLowerCase().includes(kw))
+  }, [messages, deferredKeyword])
+
+  // 滚动依赖：消息数、最后一条的长度 / 状态 / 工具状态（见第 23 章）
   const last = messages.at(-1)
   const toolSig = last?.toolCalls?.map((t) => t.status).join(',') ?? ''
   const scrollDep = `${messages.length}:${last?.content.length ?? 0}:${last?.status}:${toolSig}`
 
   const { containerRef, hasNew, scrollToBottom } = useAutoScroll<HTMLDivElement>({
     dep: scrollDep,
+    // 搜索时关掉自动滚动，否则用户看搜索结果会被拽到底部
+    enabled: !deferredKeyword.trim(),
   })
 
   return (
-    <div className="relative flex-1 overflow-hidden">
-      <div ref={containerRef} className="h-full space-y-3 overflow-y-auto px-4 py-3">
+    <div className="relative flex flex-1 flex-col overflow-hidden">
+      {/* 消息多了才显示搜索框 */}
+      {messages.length > 6 && (
+        <div className="border-b border-slate-100 px-3 py-2 dark:border-slate-700">
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="搜索对话…"
+            className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          />
+        </div>
+      )}
+
+      <div
+        ref={containerRef}
+        className={`flex-1 space-y-3 overflow-y-auto px-4 py-3 transition-opacity ${
+          isFiltering ? 'opacity-60' : ''
+        }`}
+      >
         {messages.length === 0 ? (
           <div className="pt-10 text-center text-sm text-slate-400">
             <p>还没有对话</p>
             <p className="mt-1 text-xs">试试："我还有哪些任务没做完？"</p>
           </div>
+        ) : visible.length === 0 ? (
+          <p className="pt-10 text-center text-sm text-slate-400">没有匹配的消息</p>
         ) : (
-          messages.map((m) => <MessageBubble key={m.id} message={m} />)
+          visible.map((m) => <MessageBubble key={m.id} message={m} />)
         )}
       </div>
 
-      {/* 用户往上滑且有新内容时，右下角浮出提示 */}
       {hasNew && (
         <button
           type="button"
