@@ -6,6 +6,13 @@ export type ChatStreamEvent =
   | { type: 'delta'; text: string }
   | { type: 'tool_start'; id: string; name: string; input: unknown }
   | { type: 'tool_end'; id: string; ok: boolean; summary: string }
+  | {
+      type: 'invalidate'
+      resource: string
+      /** 改数据的工具名：create_task / update_task / delete_task */
+      op: string
+      task?: Record<string, unknown>
+    }
   | { type: 'done'; stopReason: string; usage?: { output_tokens: number } }
   | { type: 'error'; message: string }
 
@@ -73,6 +80,14 @@ export async function* streamChat(
           id: String(d.id),
           ok: Boolean(d.ok),
           summary: String(d.summary ?? ''),
+        }
+        break
+      case 'invalidate':
+        yield {
+          type: 'invalidate',
+          resource: String(d.resource ?? ''),
+          op: String(d.op ?? ''),
+          task: d.task as Record<string, unknown> | undefined,
         }
         break
       case 'done':

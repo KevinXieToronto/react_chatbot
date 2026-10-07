@@ -134,7 +134,14 @@ export async function runAgentLoop(messages, handlers, signal) {
 
         result ??= await runTool(call.name, input)
 
-        handlers.onToolEnd({ id: call.id, ok: result.ok, summary: result.summary })
+        // 多传 name 和 task：路由要靠它们决定发不发 invalidate 事件（第 26 章）
+        handlers.onToolEnd({
+          id: call.id,
+          name: call.name,
+          ok: result.ok,
+          summary: result.summary,
+          task: result.task,
+        })
 
         // 失败的工具也必须返回结果。
         // 漏掉任何一个 tool_call_id 的结果，下一次请求会直接 400。

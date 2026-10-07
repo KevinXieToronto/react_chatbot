@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { isMock } from '../agent/openai.js'
 import { runAgentLoop } from '../agent/loop.js'
-import { runTool } from '../agent/tools.js'
+import { runTool, isMutatingTool } from '../agent/tools.js'
 import { validateMessages } from '../validate.js'
 
 export const chatRouter = Router()
@@ -53,6 +53,13 @@ async function mockAgent(res, userText, signal) {
     await new Promise((r) => setTimeout(r, 500))
     const result = await runTool('create_task', { title })
     sse(res, 'tool_end', { id, ok: result.ok, summary: result.summary })
+
+    // 数据变了，通知前端刷新缓存。
+    // 带上 task 对象，前端可以直接乐观地插进列表，不用等重新请求。
+    // op 用工具名，和下面真实分支保持一致
+    if (result.ok) {
+      sse(res, 'invalidate', { resource: 'tasks', op: 'create_task', task: result.task })
+    }
 
     await new Promise((r) => setTimeout(r, 200))
     return typeOut(
@@ -128,7 +135,12 @@ chatRouter.post('/', async (req, res) => {
       {
         onText: (delta) => sse(res, 'delta', { text: delta }),
         onToolStart: (info) => sse(res, 'tool_start', info),
-        onToolEnd: (info) => sse(res, 'tool_end', info),
+        onToolEnd: (info) => {
+          sse(res, 'tool_end', { id: info.id, ok: info.ok, summary: info.summary })
+          if (info.ok && isMutatingTool(info.name)) {
+            sse(res, 'invalidate', { resource: 'tasks', op: info.name, task: info.task })
+          }
+        },
       },
       abort.signal,
     )
@@ -147,7 +159,7 @@ chatRouter.post('/', async (req, res) => {
 
     res.end()
   } catch (err) {
-    // 客户端断开引起的 APIUserAbortError（OpenAI SDK 也是这个名字） 是我们自己取消的，不是错误（见第 22 章）
+    // 客户端断开引起的 APIUserAbortError（OpenAI SDK 也是这个名字）是我们自己取消的，不是错误（见第 22 章）
     if (abort.signal.aborted) return
 
     console.error('[chat] 出错：', err)

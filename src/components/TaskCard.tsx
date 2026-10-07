@@ -6,6 +6,7 @@ import { useClickOutside } from '../hooks/useClickOutside'
 import { useKeyPress } from '../hooks/useKeyPress'
 import { useDeleteTask, useUpdateTask } from '../api/taskQueries'
 import { useUIStore } from '../store/uiStore'
+import { useCopilotStore } from '../store/copilotStore'
 
 interface TaskCardProps {
   task: Task
@@ -17,6 +18,9 @@ const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   const deleteTask = useDeleteTask()
   const setEditingId = useUIStore((s) => s.setEditingId)
 
+  // 被 Agent 改过的任务加一圈高亮，让用户知道"这条刚变了"
+  const isChanged = useCopilotStore((s) => s.changedTaskIds.includes(task.id))
+
   const priority = PRIORITY_META[task.priority]
   const status = STATUS_META[task.status]
   const isDone = task.status === 'done'
@@ -26,7 +30,13 @@ const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
   useKeyPress('Escape', () => setMenuOpen(false), { enableInInput: true })
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div
+      className={`flex items-start gap-3 rounded-lg border bg-white p-4 shadow-sm transition-all duration-500 dark:bg-slate-800 ${
+        isChanged
+          ? 'border-blue-400 ring-2 ring-blue-200 dark:border-blue-500 dark:ring-blue-900'
+          : 'border-slate-200 dark:border-slate-700'
+      }`}
+    >
       <input
         type="checkbox"
         checked={isDone}
@@ -55,6 +65,11 @@ const TaskCard = memo(function TaskCard({ task }: TaskCardProps) {
           </h3>
 
           <div className="flex shrink-0 items-center gap-1">
+            {isChanged && (
+              <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-900 dark:text-blue-200">
+                Copilot 刚改过
+              </span>
+            )}
             <span className={`rounded px-2 py-0.5 text-xs ${priority.className}`}>
               {priority.label}
             </span>

@@ -5,6 +5,7 @@ import { useCopilotStore, createMessage } from '../../store/copilotStore'
 import { toWire } from '../../types/chat'
 import { turnReducer, initialTurnState, describePhase } from './turnReducer'
 import type { TurnAction, TurnState } from './turnReducer'
+import { useTaskSync } from './useTaskSync'
 
 /** 总时长上限，见第 24 章 */
 const REQUEST_TIMEOUT = 300_000
@@ -19,6 +20,9 @@ export function useChat() {
   const addMessage = useCopilotStore((s) => s.addMessage)
   const patchMessage = useCopilotStore((s) => s.patchMessage)
   const setBusy = useCopilotStore((s) => s.setBusy)
+
+  // 收到 invalidate 事件时，把 Agent 的改动同步到 TanStack Query 缓存
+  const syncTasks = useTaskSync()
 
   // 当前这一轮的阶段，只用来驱动界面上的提示（"正在思考…""正在查询任务…"）
   const [turn, dispatch] = useReducer(turnReducer, initialTurnState)
@@ -117,6 +121,12 @@ export function useChat() {
               apply({ type: 'tool_end', id: evt.id, ok: evt.ok, summary: evt.summary })
               break
 
+            case 'invalidate':
+              if (evt.resource === 'tasks') {
+                syncTasks(evt.op, evt.task)
+              }
+              break
+
             case 'done':
               settled = true
               flush()
@@ -168,7 +178,7 @@ export function useChat() {
         }
       }
     },
-    [messages, addMessage, patchMessage, setBusy, push, flush, reset, getText],
+    [messages, addMessage, patchMessage, setBusy, push, flush, reset, getText, syncTasks],
   )
 
   return { send, stop, turn, phaseText: describePhase(turn) }

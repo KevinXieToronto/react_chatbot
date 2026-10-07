@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useCopilotStore } from '../../store/copilotStore'
 import { useChat } from './useChat'
 import MessageList from './MessageList'
+import QuickActions from './QuickActions'
 
 export default function CopilotPanel() {
   const open = useCopilotStore((s) => s.open)
@@ -9,16 +10,20 @@ export default function CopilotPanel() {
   const hasMessages = useCopilotStore((s) => s.messages.length > 0)
   const busy = useCopilotStore((s) => s.busy)
   const clear = useCopilotStore((s) => s.clear)
+  const clearChanged = useCopilotStore((s) => s.clearChanged)
 
   const [input, setInput] = useState('')
 
   // Hook 必须写在提前 return 之前（见第 22 章）
   const { send, stop, phaseText } = useChat()
 
-  // 面板一关就停止生成（见第 24 章）
+  // 面板一关：停止生成（第 24 章），并清掉看板上的"刚改过"高亮
   useEffect(() => {
-    if (!open) stop()
-  }, [open, stop])
+    if (!open) {
+      stop()
+      clearChanged()
+    }
+  }, [open, stop, clearChanged])
 
   if (!open) return null
 
@@ -63,6 +68,8 @@ export default function CopilotPanel() {
       </header>
 
       <MessageList />
+
+      <QuickActions onPick={(text) => void send(text)} disabled={busy} />
 
       {/* 正在输出时：左边是当前阶段，右边是停止按钮 */}
       {busy && (

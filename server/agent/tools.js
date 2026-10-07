@@ -83,9 +83,14 @@ export const toolDefinitions = [
   },
 ]
 
-/** 工具执行的统一返回格式 */
-function ok(data, summary) {
-  return { ok: true, data, summary }
+/**
+ * 工具执行的统一返回格式。
+ * @param data    喂回给模型的数据（尽量精简，省 token）
+ * @param summary 给用户看的一句话
+ * @param extra   额外附加信息，只给前端用，不进模型上下文（第 26 章）
+ */
+function ok(data, summary, extra = {}) {
+  return { ok: true, data, summary, ...extra }
 }
 function fail(message) {
   return { ok: false, error: message, summary: `失败：${message}` }
@@ -149,7 +154,11 @@ const executors = {
     }
 
     await mutate((db) => db.tasks.unshift(task))
-    return ok({ id: task.id, title: task.title }, `已创建「${task.title}」`)
+    return ok(
+      { id: task.id, title: task.title }, // 给模型：精简
+      `已创建「${task.title}」`,
+      { task }, // 给前端：完整对象，用于乐观插入
+    )
   },
 
   async update_task(input) {
@@ -180,7 +189,9 @@ const executors = {
     if (!updated) return fail(`找不到 id 为 ${id} 的任务`)
 
     const what = Object.keys(patch).join('、')
-    return ok({ id: updated.id, title: updated.title }, `已更新「${updated.title}」的 ${what}`)
+    return ok({ id: updated.id, title: updated.title }, `已更新「${updated.title}」的 ${what}`, {
+      task: { ...updated },
+    })
   },
 
   async delete_task(input) {
@@ -197,7 +208,7 @@ const executors = {
     })
 
     if (!removed) return fail(`找不到 id 为 ${id} 的任务`)
-    return ok({ id }, `已删除「${title}」`)
+    return ok({ id }, `已删除「${title}」`, { task: { id } })
   },
 }
 
@@ -211,6 +222,13 @@ export async function runTool(name, input) {
     console.error(`[tool] ${name} 执行出错：`, err)
     return fail('工具执行出错')
   }
+}
+
+/** 会修改任务数据的工具。用来决定要不要通知前端刷新。 */
+const MUTATING_TOOLS = new Set(['create_task', 'update_task', 'delete_task'])
+
+export function isMutatingTool(name) {
+  return MUTATING_TOOLS.has(name)
 }
 
 /**
