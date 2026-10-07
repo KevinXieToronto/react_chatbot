@@ -25,6 +25,8 @@ export interface ChatMessage {
   toolCalls?: ToolCall[]
   /** 出错时的信息 */
   error?: string
+  /** 错误类型：retryable / input / config（第 28 章） */
+  errorKind?: string
 }
 
 /** 发给后端的精简格式 —— 只有 API 需要的字段 */

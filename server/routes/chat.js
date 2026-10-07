@@ -3,8 +3,12 @@ import { isMock } from '../agent/openai.js'
 import { runAgentLoop } from '../agent/loop.js'
 import { runTool, isMutatingTool } from '../agent/tools.js'
 import { validateMessages } from '../validate.js'
+import { rateLimit } from '../middleware/rateLimit.js'
 
 export const chatRouter = Router()
+
+const MAX_MESSAGES = 60
+const MAX_CHARS = 20_000
 
 function sse(res, event, data) {
   res.write(`event: ${event}\n`)
@@ -19,6 +23,41 @@ function openStream(res) {
     'X-Accel-Buffering': 'no',
   })
   res.flushHeaders?.()
+}
+
+/**
+ * 把各种异常映射成前端能理解的分类：
+ * - retryable：重试可能会好（网络、限流、服务端 5xx）
+ * - input：要改输入才行（内容太长、请求本身有问题）
+ * - config：配置问题，重试一万次也没用（Key 无效、没权限、模型名写错）
+ */
+function classifyError(err) {
+  const status = err?.status
+
+  if (status === 401) {
+    return { kind: 'config', message: 'API Key 无效，请联系管理员' }
+  }
+  if (status === 403) {
+    return { kind: 'config', message: '这个 API Key 没有权限使用该模型，请联系管理员' }
+  }
+  if (status === 404) {
+    // 最常见的原因：OPENAI_MODEL 写错了，或者这个模型已经下线
+    return { kind: 'config', message: '模型不存在，请检查 server/.env 里的 OPENAI_MODEL' }
+  }
+  if (status === 413) {
+    return { kind: 'input', message: '内容太长了，请新建一个会话或缩短问题' }
+  }
+  if (status === 429) {
+    return { kind: 'retryable', message: '请求太频繁，稍等一下再试' }
+  }
+  if (status === 400) {
+    // 400 的原因很多（参数不合法、上下文超长……），别一律说成"太长了"
+    return { kind: 'input', message: '模型 API 拒绝了这个请求，换个问法或新建一个会话试试' }
+  }
+  if (status >= 500 || err?.name === 'APIConnectionError') {
+    return { kind: 'retryable', message: '服务暂时不可用，请重试' }
+  }
+  return { kind: 'retryable', message: '出错了，请重试' }
 }
 
 /**
@@ -134,11 +173,30 @@ async function mockAgent(res, userText, signal) {
   )
 }
 
-chatRouter.post('/', async (req, res) => {
+chatRouter.post('/', rateLimit({ windowMs: 60_000, max: 20 }), async (req, res) => {
   const { messages } = req.body ?? {}
 
   const invalid = validateMessages(messages)
-  if (invalid) return res.status(400).json({ message: invalid })
+  if (invalid) return res.status(400).json({ kind: 'input', message: invalid })
+
+  // 防止超长上下文把 token 烧光。
+  // 真实项目应该做智能截断或摘要，这里先简单拒绝。
+  if (messages.length > MAX_MESSAGES) {
+    return res.status(400).json({
+      kind: 'input',
+      message: '对话太长了，请新建一个会话',
+    })
+  }
+
+  // validateMessages 已经保证 content 都是字符串，这里的 .length 量的就是真实字数。
+  // （没有前面那道校验的话，content 是对象时 String(...) 会变成 "[object Object]"，只有 15 个字）
+  const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0)
+  if (totalChars > MAX_CHARS) {
+    return res.status(400).json({
+      kind: 'input',
+      message: '内容太长了，请新建一个会话或缩短问题',
+    })
+  }
 
   openStream(res)
 
@@ -181,11 +239,11 @@ chatRouter.post('/', async (req, res) => {
     if (abort.signal.aborted) return res.end()
 
     if (result.stopReason === 'refusal') {
-      sse(res, 'error', { message: '抱歉，这个请求我没法处理。' })
+      sse(res, 'error', { kind: 'input', message: '抱歉，这个请求我没法处理。换个问法试试？' })
     } else if (result.stopReason === 'truncated') {
-      sse(res, 'error', { message: '回复被长度限制截断了，请把问题拆小一点再试。' })
+      sse(res, 'error', { kind: 'input', message: '回复被长度限制截断了，请把问题拆小一点。' })
     } else if (result.stopReason === 'max_turns') {
-      sse(res, 'error', { message: '操作步骤太多，已停止。请把需求拆成几步分别说。' })
+      sse(res, 'error', { kind: 'input', message: '操作步骤太多，已停止。请把需求拆成几步分别说。' })
     } else {
       sse(res, 'done', { stopReason: result.stopReason, usage: result.usage })
     }
@@ -197,7 +255,7 @@ chatRouter.post('/', async (req, res) => {
 
     console.error('[chat] 出错：', err)
     if (!res.writableEnded) {
-      sse(res, 'error', { message: err?.status === 401 ? 'API Key 无效' : '调用模型失败' })
+      sse(res, 'error', classifyError(err))
       res.end()
     }
   }

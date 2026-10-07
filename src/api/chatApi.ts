@@ -13,8 +13,12 @@ export type ChatStreamEvent =
       op: string
       task?: Record<string, unknown>
     }
-  | { type: 'done'; stopReason: string; usage?: { output_tokens: number } }
-  | { type: 'error'; message: string }
+  | {
+      type: 'done'
+      stopReason: string
+      usage?: { input_tokens?: number; output_tokens?: number }
+    }
+  | { type: 'error'; message: string; kind?: string }
 
 interface SendOptions {
   signal?: AbortSignal
@@ -42,15 +46,18 @@ export async function* streamChat(
   })
 
   // 出错时后端还没开始流，返回的是普通 JSON
+  // 限流（429）和输入校验（400）都是在开流之前用普通 JSON 返回的，kind 也要从这里取
   if (!res.ok) {
     let message = `请求失败（${res.status}）`
+    let kind: string | undefined
     try {
       const body = await res.json()
       if (body?.message) message = body.message
+      if (body?.kind) kind = String(body.kind)
     } catch {
       /* 响应不是 JSON，用默认文案 */
     }
-    yield { type: 'error', message }
+    yield { type: 'error', message, kind }
     return
   }
 
@@ -94,11 +101,15 @@ export async function* streamChat(
         yield {
           type: 'done',
           stopReason: String(d.stopReason ?? 'end_turn'),
-          usage: d.usage as { output_tokens: number } | undefined,
+          usage: d.usage as { input_tokens?: number; output_tokens?: number } | undefined,
         }
         break
       case 'error':
-        yield { type: 'error', message: String(d.message ?? '出错了') }
+        yield {
+          type: 'error',
+          message: String(d.message ?? '出错了'),
+          kind: d.kind ? String(d.kind) : undefined,
+        }
         break
       // 未知事件忽略 —— 后端以后加新事件不会让旧前端崩
     }

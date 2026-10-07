@@ -1,10 +1,15 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
-import { useCopilotStore } from '../../store/copilotStore'
+import { useMessages } from '../../store/copilotStore'
 import MessageBubble from './MessageBubble'
 
-export default function MessageList() {
-  const messages = useCopilotStore((s) => s.messages)
+interface MessageListProps {
+  onRetry?: (messageId: string) => void
+}
+
+export default function MessageList({ onRetry }: MessageListProps) {
+  // 当前会话的消息（第 28 章起按会话存放）
+  const messages = useMessages()
 
   const [keyword, setKeyword] = useState('')
 
@@ -65,7 +70,7 @@ export default function MessageList() {
         ) : visible.length === 0 ? (
           <p className="pt-10 text-center text-sm text-slate-400">没有匹配的消息</p>
         ) : (
-          visible.map((m) => <MessageBubble key={m.id} message={m} />)
+          visible.map((m) => <MessageBubble key={m.id} message={m} onRetry={onRetry} />)
         )}
       </div>
 

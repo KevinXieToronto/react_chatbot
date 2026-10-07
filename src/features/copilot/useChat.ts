@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { streamChat } from '../../api/chatApi'
 import { useStreamBuffer } from '../../hooks/useStreamBuffer'
-import { useCopilotStore, createMessage } from '../../store/copilotStore'
+import { useCopilotStore, useMessages, createMessage } from '../../store/copilotStore'
 import { toWire } from '../../types/chat'
 import { turnReducer, initialTurnState, describePhase } from './turnReducer'
 import type { TurnAction, TurnState } from './turnReducer'
@@ -16,10 +16,13 @@ function isAbortError(err: unknown): boolean {
 }
 
 export function useChat() {
-  const messages = useCopilotStore((s) => s.messages)
+  // 当前会话的消息（第 28 章起消息按会话存放）
+  const messages = useMessages()
   const addMessage = useCopilotStore((s) => s.addMessage)
   const patchMessage = useCopilotStore((s) => s.patchMessage)
   const setBusy = useCopilotStore((s) => s.setBusy)
+  const truncateFrom = useCopilotStore((s) => s.truncateFrom)
+  const addUsage = useCopilotStore((s) => s.addUsage)
 
   // 收到 invalidate 事件时，把 Agent 的改动同步到 TanStack Query 缓存
   const syncTasks = useTaskSync()
@@ -96,7 +99,12 @@ export function useChat() {
       let settled = false
 
       try {
-        const wire = toWire([...messages, userMessage])
+        // ⚠️ 不能再用闭包里的 messages：下面的 retry 会先 truncateFrom 再调 send，
+        //    同一次调用里 send 闭包拿到的还是截断【前】的快照，会把旧的那条用户消息再发一遍。
+        //    从 store 现取：此刻里面已经有刚 add 的 user 和空的 assistant（后者会被 toWire 过滤掉）
+        const { conversations, activeId } = useCopilotStore.getState()
+        const history = conversations.find((c) => c.id === activeId)?.messages ?? []
+        const wire = toWire(history)
 
         for await (const evt of streamChat(wire, { signal })) {
           if (myId !== requestIdRef.current) {
@@ -132,13 +140,21 @@ export function useChat() {
               flush()
               apply({ type: 'done' })
               patchMessage(assistantMessage.id, { status: 'complete' })
+              // 记录用量（服务端已经把多轮工具调用的用量加总好了，见第 25 章）
+              if (evt.usage) {
+                addUsage(evt.usage.input_tokens ?? 0, evt.usage.output_tokens ?? 0)
+              }
               break
 
             case 'error':
               settled = true
               flush()
               apply({ type: 'error', message: evt.message })
-              patchMessage(assistantMessage.id, { status: 'error', error: evt.message })
+              patchMessage(assistantMessage.id, {
+                status: 'error',
+                error: evt.message,
+                errorKind: evt.kind,
+              })
               break
           }
         }
@@ -178,8 +194,30 @@ export function useChat() {
         }
       }
     },
-    [messages, addMessage, patchMessage, setBusy, push, flush, reset, getText, syncTasks],
+    [addMessage, patchMessage, setBusy, addUsage, push, flush, reset, getText, syncTasks],
   )
 
-  return { send, stop, turn, phaseText: describePhase(turn) }
+  /**
+   * 重试：删掉从这条助手消息开始的所有内容，
+   * 用它前面的那条用户消息重新提问。
+   *
+   * ⚠️ retry 必须定义在 send 之后，因为它依赖 send。
+   *    const 没有变量提升，写反了会报 "Cannot access 'send' before initialization"。
+   */
+  const retry = useCallback(
+    (assistantMessageId: string) => {
+      const index = messages.findIndex((m) => m.id === assistantMessageId)
+      if (index <= 0) return
+
+      const userMessage = messages[index - 1]
+      if (userMessage.role !== 'user') return
+
+      // 先把用户消息和助手消息都删掉（send 会重新加）
+      truncateFrom(userMessage.id)
+      void send(userMessage.content)
+    },
+    [messages, truncateFrom, send],
+  )
+
+  return { send, stop, retry, turn, phaseText: describePhase(turn) }
 }
