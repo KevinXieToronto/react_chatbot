@@ -6,10 +6,14 @@ import ChatComposer from '../copilot/ChatComposer'
 import StopBar from '../copilot/StopBar'
 import ApprovalCard from '../copilot/ApprovalCard'
 import { useFileSync } from './useFileSync'
+import { useTerminalSync } from './useTerminalSync'
+import { clearOutputs } from './terminalBuffer'
 
 const SUGGESTIONS = [
   '列出文件',
   '跑一下测试',
+  '跑一下构建',
+  '启动开发服务器',
   '帮我修复 bug',
   '新建文件 src/clamp.js',
   '用命令看看 ../server/.env',
@@ -34,9 +38,12 @@ export default function CodeChat() {
   }
 
   const syncFiles = useFileSync()
+  const syncTerminal = useTerminalSync()
   const { send, stop, retry, decide, approval, phaseText } = useChat(session, {
     mode: 'code',
     onInvalidate: syncFiles,
+    // 第 32 章：命令的实时输出直接进终端，不经过消息状态
+    onToolOutput: syncTerminal,
   })
 
   const awaiting = approval !== null
@@ -48,7 +55,10 @@ export default function CodeChat() {
         <button
           type="button"
           disabled={busy || messages.length === 0}
-          onClick={clearMessages}
+          onClick={() => {
+            clearMessages()
+            clearOutputs()
+          }}
           className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-700"
         >
           清空

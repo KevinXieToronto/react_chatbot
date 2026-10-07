@@ -20,7 +20,8 @@ function deniedResult(decision) {
 
 /**
  * 创建一个"带事件的工具执行器"：
- *   发 tool_start →（需要的话）算 diff、等用户审批 → 真正执行 → 发 tool_end →（数据变了）发 invalidate
+ *   发 tool_start →（需要的话）算 diff、等用户审批 → 真正执行（命令边跑边发 tool_output）
+ *   → 发 tool_end →（数据变了）发 invalidate
  *
  * 真实 Agent 循环和 Mock Agent 都通过它执行工具，
  * 所以审批这道关只需要写在这一个地方，谁也绕不过去。
@@ -67,7 +68,12 @@ export function createToolRunner(res, profile, signal, { delayMs = 0 } = {}) {
       expectedHash = plan?.baseHash ?? undefined
     }
 
-    const result = await profile.runTool(name, input, { signal, expectedHash })
+    const result = await profile.runTool(name, input, {
+      signal,
+      expectedHash,
+      // 第 32 章：命令的实时输出。toolUseId 让前端知道这块输出属于哪一次调用
+      onOutput: (stream, chunk) => sse(res, 'tool_output', { toolUseId: id, stream, chunk }),
+    })
 
     sse(res, 'tool_end', { id, ok: result.ok, summary: result.summary })
 

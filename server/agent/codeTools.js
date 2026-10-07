@@ -98,7 +98,7 @@ export const codeToolDefinitions = [
     name: 'run_command',
     description:
       '在工作区根目录执行一条 shell 命令（Windows 上是 cmd.exe，其他系统是 sh），返回退出码和输出。' +
-      '适合跑测试、构建、查看 git 状态。命令不能交互（没有标准输入），' +
+      '适合跑测试、构建、查看 git 状态。命令不能交互（没有标准输入），不要启动不会自己退出的进程（开发服务器、watch 模式），' +
       '默认 30 秒超时，输出过长时只保留开头和结尾。每次执行都需要用户批准，请一次只跑一条必要的命令。',
     input_schema: {
       type: 'object',
@@ -325,11 +325,25 @@ const executors = {
       timeoutMs: seconds * 1000,
       maxOutput: MAX_COMMAND_OUTPUT,
       signal: ctx.signal,
+      // 第 32 章：命令还在跑的时候就把输出一块块交出去，由工具执行器推给浏览器
+      onOutput: ctx.onOutput,
     })
 
     if (r.aborted) return fail('命令被用户中止')
-    if (r.timedOut) return fail(`命令超过 ${seconds} 秒没有结束，已强制终止。已有的输出：\n${r.output}`)
-    if (r.overflow) return fail(`命令输出超过 2 MB，已强制终止。最后的输出：\n${r.output}`)
+    // 给模型的 error 带上已有的输出（它得知道卡在哪了）；给人看的 summary 只要一句话，
+    // 完整输出在终端面板里看（第 32 章）
+    if (r.timedOut) {
+      return {
+        ...fail(`命令超过 ${seconds} 秒没有结束，已强制终止。已有的输出：\n${r.output}`),
+        summary: `失败：超过 ${seconds} 秒没有结束，已强制终止`,
+      }
+    }
+    if (r.overflow) {
+      return {
+        ...fail(`命令输出超过 2 MB，已强制终止。最后的输出：\n${r.output}`),
+        summary: '失败：输出超过 2 MB，已强制终止',
+      }
+    }
 
     // 退出码非 0 也算"工具成功执行了"：命令跑完了，只是结果是失败。
     // 把退出码和输出交给模型判断（比如测试没过，它会去修）。
@@ -345,6 +359,7 @@ const executors = {
  * 执行一个编码工具。
  * 和 runTool 一样：input 是模型生成的，不可信；所有路径都要过沙箱。
  * ctx.signal：用户点了停止时，正在跑的命令会被杀掉。
+ * ctx.onOutput：run_command 的实时输出回调（第 32 章）。
  */
 export async function runCodeTool(name, input, ctx = {}) {
   // 用 Object.hasOwn 而不是 executors[name]：name 是模型给的，

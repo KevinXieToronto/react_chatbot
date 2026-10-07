@@ -36,6 +36,23 @@ describe('runShell', () => {
     expect(Date.now() - started).toBeLessThan(10_000)
   })
 
+  it('命令还没结束，输出就一块块地交出来了（第 32 章）', async () => {
+    const got = []
+    const r = await runShell(
+      'node -e "console.log(1); setTimeout(() => console.error(2), 300)"',
+      { onOutput: (stream, text) => got.push({ stream, text, at: Date.now() }) },
+    )
+    expect(r.exitCode).toBe(0)
+    expect(got.map((g) => g.stream)).toEqual(['stdout', 'stderr'])
+    // 两块之间隔了 ~300ms：第一块是在进程还活着的时候推出来的
+    expect(got[1].at - got[0].at).toBeGreaterThan(150)
+  })
+
+  it('给模型的结果去掉了颜色代码', async () => {
+    const r = await runShell('node -e "console.log(\'\\x1b[32mgreen\\x1b[39m\')"')
+    expect(r.output.trim()).toBe('green')
+  })
+
   it('中止信号同样会杀进程', async () => {
     const ctrl = new AbortController()
     setTimeout(() => ctrl.abort(), 300)

@@ -37,6 +37,8 @@ function testSummary(text) {
  * 第 30 章起，create_file / edit_file / run_command 会先停下来等你批准；
  * 被拒绝时工具返回 { denied: true, note }，剧本据此"改变主意"，模拟模型的反应。
  * 第 31 章起，改动在审批前就算好了：匹配不唯一这种"根本改不成"的编辑，不会弹审批卡片。
+ * 第 32 章加了"跑一下构建""启动开发服务器""用 echo 打个招呼"（命令输出实时推到终端面板），
+ * 以及"新建一个可疑文件"（看 Monaco 怎么标出看不见的字符）。
  *
  * @param {{ res, signal, callTool }} ctx
  * @param {string} userText
@@ -66,6 +68,25 @@ export async function mockCodeAgent({ res, signal, callTool }, userText) {
         ? '……居然读到了？那说明沙箱有漏洞，赶紧检查 resolveInWorkspace！'
         : `我试着读 \`${path}\`，被服务端拦下了：\n\n> ${r.error}\n\n` +
             '这就是沙箱的意义：不管模型（或者藏在代码注释里的提示注入）让我读什么，服务端只认工作区里面的路径。',
+    )
+  }
+
+  // ①' 第 32 章：一个藏了"看不见的字符"的文件，看 Monaco 怎么把它们框出来
+  if (/可疑|看不见的字符/.test(t)) {
+    // 用 \u 转义写：这两个字符复制粘贴时很容易丢，写成转义才可靠
+    const content =
+      '// 这两个变量名看起来一模一样。第二个里的 "а" 其实是西里尔字母（U+0430）\n' +
+      "export const password = 'real'\n" +
+      "export const pаssword = 'fake'\n" +
+      '\n' +
+      '// 这一行的等号后面藏着一个零宽空格（U+200B）\n' +
+      'export const token =​ 42\n'
+    const r = await call('create_file', { path: 'src/sneaky.js', content })
+    if (r.denied) return say(refusedText(r))
+    return say(
+      r.ok
+        ? `${r.summary}。在右边打开它：Monaco 用方框标出了西里尔字母 а 和零宽空格 —— 光看文字你是分辨不出来的。`
+        : `没建成：${r.error}（先删掉 workspace\\src\\sneaky.js 再试）`,
     )
   }
 
@@ -162,7 +183,45 @@ export async function mockCodeAgent({ res, signal, callTool }, userText) {
     return say(r.ok ? `${r.summary}。` : `没建成：${r.error}`)
   }
 
-  // ④ 跑测试："跑一下测试"
+  // ④ 第 32 章：一个慢慢输出的"构建"，看终端面板实时滚动
+  if (/构建|build/i.test(t)) {
+    const r = await call('run_command', { command: 'npm run build' })
+    if (r.denied) return say(refusedText(r))
+    if (!r.ok) return say(`命令没跑成：${r.error}`)
+    const tail = r.data.trimEnd().split('\n').slice(-5).join('\n')
+    return say(
+      `构建跑完了（${r.summary}）。右边 **终端** 标签里是带颜色、进度条会动的原始输出；` +
+        '我（模型）拿到的是去掉颜色代码、进度条只留最后一帧的纯文本，最后几行是：\n\n' +
+        `\`\`\`\n${tail}\n\`\`\``,
+    )
+  }
+
+  // ④' 第 32 章：一个永远不会自己退出的进程，演示超时 / 停止时杀掉整棵进程树
+  if (/开发服务器|dev ?server|run dev/i.test(t)) {
+    if (!(await say('开发服务器不会自己退出，我给它设了 15 秒超时。你也可以随时点 **停止**。\n\n'))) {
+      return false
+    }
+    const r = await call('run_command', { command: 'npm run dev', timeout_seconds: 15 })
+    if (r.denied) return say(refusedText(r))
+    return say(
+      r.ok
+        ? `它居然自己退出了（${r.summary}）。`
+        : `${r.summary}。\n\n整棵进程树（cmd → npm → cmd → node）都被杀掉了，5199 端口已经释放。`,
+    )
+  }
+
+  // ④'' 第 32 章：cmd 内置命令输出中文，看代码页解码对不对
+  if (/echo|打个招呼/i.test(t)) {
+    const r = await call('run_command', { command: 'echo 你好，终端' })
+    if (r.denied) return say(refusedText(r))
+    return say(
+      `命令的输出是：\n\n\`\`\`\n${r.ok ? r.data : r.error}\n\`\`\`\n\n` +
+        '`echo` 是 cmd 的内置命令，按控制台代码页输出（中文 Windows 上是 GBK）。' +
+        '服务端按行解码：先试 UTF-8，不行再按代码页解，所以中文是正常的。',
+    )
+  }
+
+  // ⑤ 跑测试："跑一下测试"
   if (/测试|跑一下|运行|npm|run/i.test(t)) {
     const r = await call('run_command', { command: 'npm test' })
     if (r.denied) return say(refusedText(r))
@@ -176,14 +235,14 @@ export async function mockCodeAgent({ res, signal, callTool }, userText) {
     )
   }
 
-  // ⑤ 搜索："搜索 nums"
+  // ⑥ 搜索："搜索 nums"
   const searchMatch = t.match(/(?:搜索|查找|搜一下|search)\s*[：:]?\s*(\S+)/i)
   if (searchMatch) {
     const r = await call('search', { query: searchMatch[1] })
     return say(r.ok ? `${r.summary}：\n\n\`\`\`\n${r.data}\n\`\`\`` : `搜索失败：${r.error}`)
   }
 
-  // ⑥ 读文件："看看 src/math.js"
+  // ⑦ 读文件："看看 src/math.js"
   const readMatch = t.match(/(?:看看|读一下|读|打开|read)\s*[：:]?\s*([\w./-]+\.\w+)/i)
   if (readMatch) {
     const r = await call('read_file', { path: readMatch[1] })
@@ -192,7 +251,7 @@ export async function mockCodeAgent({ res, signal, callTool }, userText) {
     )
   }
 
-  // ⑦ 列文件
+  // ⑧ 列文件
   if (/列出|有哪些文件|文件列表|目录|结构|list/i.test(t)) {
     const r = await call('list_files', { path: '.' })
     return say(r.ok ? `工作区里有这些文件：\n\n\`\`\`\n${r.data}\n\`\`\`` : `列不出来：${r.error}`)
@@ -201,7 +260,8 @@ export async function mockCodeAgent({ res, signal, callTool }, userText) {
   return say(
     '（Mock 模式）我是代码助手，只能读写 `workspace/` 里的文件。试试：\n\n' +
       '· "列出文件"\n· "看看 src/math.js"\n· "搜索 nums"\n· "帮我修复 bug"\n· "给 average 加空数组保护"\n' +
-      '· "跑一下测试"\n· "新建文件 src/clamp.js"\n· "生成一个大文件"\n' +
+      '· "跑一下测试"\n· "跑一下构建"\n· "启动开发服务器"\n· "新建文件 src/clamp.js"\n· "生成一个大文件"\n' +
+      '· "用 echo 打个招呼"（看中文输出的解码）\n· "新建一个可疑文件"（看 Monaco 标出看不见的字符）\n' +
       '· "读一下 ../server/.env"（演示沙箱）\n· "用命令看看 ../server/.env"（演示命令为什么必须审批）',
   )
 }

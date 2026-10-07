@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { streamChat, submitApproval } from '../../api/chatApi'
-import type { InvalidateEvent } from '../../api/chatApi'
+import type { InvalidateEvent, ToolOutputEvent } from '../../api/chatApi'
 import { useStreamBuffer } from '../../hooks/useStreamBuffer'
 import { createMessage } from '../../store/copilotStore'
 import { toWire } from '../../types/chat'
@@ -27,6 +27,12 @@ interface UseChatOptions {
   mode?: ChatMode
   /** 后端通知"数据变了"时调用。任务 Copilot 用它刷新任务缓存，代码助手用它刷新文件面板 */
   onInvalidate?: (evt: InvalidateEvent) => void
+  /**
+   * 命令的实时输出（第 32 章）。
+   * 故意【不】进 turnReducer：输出一秒能来几十块，每块都 dispatch 会让整个消息列表跟着重渲染。
+   * 交给调用方直接写进终端（xterm）就好。
+   */
+  onToolOutput?: (evt: ToolOutputEvent) => void
 }
 
 /**
@@ -35,7 +41,10 @@ interface UseChatOptions {
  * 第 29 章起，消息存在哪由调用方通过 session 决定，
  * 这样 Copilot 和代码助手共用同一套流式 / 中止 / 竞态处理逻辑。
  */
-export function useChat(session: ChatSession, { mode = 'tasks', onInvalidate }: UseChatOptions = {}) {
+export function useChat(
+  session: ChatSession,
+  { mode = 'tasks', onInvalidate, onToolOutput }: UseChatOptions = {},
+) {
   // 解构出来的函数都是 store 里的 action（getMessages 是调用方的模块级函数），引用稳定，放进依赖数组不会导致重建
   const { messages, getMessages, addMessage, patchMessage, truncateFrom, setBusy, addUsage } = session
 
@@ -51,8 +60,10 @@ export function useChat(session: ChatSession, { mode = 'tasks', onInvalidate }: 
 
   // latest ref：调用方传行内箭头函数也不会让 send 每次渲染都重建
   const onInvalidateRef = useRef(onInvalidate)
+  const onToolOutputRef = useRef(onToolOutput)
   useEffect(() => {
     onInvalidateRef.current = onInvalidate
+    onToolOutputRef.current = onToolOutput
   })
 
   // stop() 要知道"现在有没有在等审批"，但不想因为 turn 变化而重建 —— 同样用 ref
@@ -218,6 +229,10 @@ export function useChat(session: ChatSession, { mode = 'tasks', onInvalidate }: 
 
             case 'invalidate':
               onInvalidateRef.current?.(evt)
+              break
+
+            case 'tool_output':
+              onToolOutputRef.current?.(evt)
               break
 
             case 'done':

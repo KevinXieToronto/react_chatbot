@@ -1,13 +1,17 @@
-import { memo, useMemo } from 'react'
+import { lazy, memo, Suspense, useMemo } from 'react'
 import { useFileContent } from '../../api/fileApi'
+
+// 第 32 章：Monaco 按需加载。只有真的打开一个文件时才下载那几 MB（第 14、18 章）
+const MonacoViewer = lazy(() => import('./MonacoViewer'))
 
 interface FileViewerProps {
   path: string | null
 }
 
 /**
- * 只读的代码查看器：行号 + 原文。
- * 后面的章节会换成 Monaco 编辑器，这里先用最朴素的 <pre> 把事情讲清楚。
+ * 只读的代码查看器。
+ * 第 29 章是朴素的 <pre>；第 32 章换成 Monaco，<pre> 版留下来当 Suspense 的 fallback ——
+ * Monaco 还在下载时，用户已经能看到代码了。
  */
 export default function FileViewer({ path }: FileViewerProps) {
   const { data, isPending, error, isFetching } = useFileContent(path)
@@ -25,13 +29,21 @@ export default function FileViewer({ path }: FileViewerProps) {
         </span>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="min-h-0 flex-1">
         {isPending ? (
           <p className="p-4 text-sm text-slate-400">加载中…</p>
         ) : error ? (
           <p className="p-4 text-sm text-rose-500">⚠ {error.message}</p>
         ) : (
-          <CodeLines content={data.content} />
+          <Suspense
+            fallback={
+              <div className="h-full overflow-auto">
+                <CodeLines content={data.content} />
+              </div>
+            }
+          >
+            <MonacoViewer path={path} content={data.content} />
+          </Suspense>
         )}
       </div>
     </div>
@@ -39,7 +51,7 @@ export default function FileViewer({ path }: FileViewerProps) {
 }
 
 /**
- * 行号和代码分两列渲染。
+ * 行号和代码分两列渲染（第 29 章的版本，现在当 Monaco 加载时的占位）。
  * 行号加 select-none：用户选中复制代码时不会把行号一起复制走。
  */
 const CodeLines = memo(function CodeLines({ content }: { content: string }) {

@@ -44,9 +44,21 @@ export type ChatStreamEvent =
       /** user = 用户点的；timeout = 超时自动拒绝 */
       by: 'user' | 'timeout'
     }
+  // ── 第 32 章：命令的实时输出 ──
+  | {
+      type: 'tool_output'
+      /** 属于哪一次工具调用（ToolCall.id） */
+      toolUseId: string
+      stream: 'stdout' | 'stderr'
+      /** 一段原样的终端输出，可能带 ANSI 颜色代码 */
+      chunk: string
+    }
 
 /** 数据变更事件，单独导出给 onInvalidate 回调用 */
 export type InvalidateEvent = Extract<ChatStreamEvent, { type: 'invalidate' }>
+
+/** 命令输出事件，单独导出给 onToolOutput 回调用（第 32 章） */
+export type ToolOutputEvent = Extract<ChatStreamEvent, { type: 'tool_output' }>
 
 interface SendOptions {
   signal?: AbortSignal
@@ -161,6 +173,14 @@ export async function* streamChat(
           toolUseId: String(d.toolUseId),
           decision: d.decision === 'allow' ? 'allow' : 'deny',
           by: d.by === 'timeout' ? 'timeout' : 'user',
+        }
+        break
+      case 'tool_output':
+        yield {
+          type: 'tool_output',
+          toolUseId: String(d.toolUseId),
+          stream: d.stream === 'stderr' ? 'stderr' : 'stdout',
+          chunk: String(d.chunk ?? ''),
         }
         break
       // 未知事件忽略 —— 后端以后加新事件不会让旧前端崩

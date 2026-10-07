@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createLineDecoder, createOutputThrottle, toPlainText } from './terminalOutput.js'
 
 const isWindows = process.platform === 'win32'
 
@@ -63,14 +64,25 @@ function killTree(child) {
 /**
  * 在 cwd 下用系统 shell 执行一条命令，收集输出。
  *
+ * 第 32 章起多了 onOutput(stream, text)：命令还在跑的时候，
+ * 解码好、节流过的输出就一块一块地交给调用方（再由它推给浏览器）。
+ *
  * 返回 { exitCode, output, timedOut, aborted, overflow }，命令本身失败（退出码非 0）
- * 不算异常 —— 那是正常结果，交给调用方判断。
+ * 不算异常 —— 那是正常结果，交给调用方判断。output 是给模型看的纯文本。
  */
-export function runShell(command, { cwd, timeoutMs = 30_000, maxOutput = 20_000, signal } = {}) {
+export function runShell(
+  command,
+  { cwd, timeoutMs = 30_000, maxOutput = 20_000, signal, onOutput, encoding } = {},
+) {
   return new Promise((resolve, reject) => {
     // 子进程默认继承服务端的全部环境变量 —— 包括 ANTHROPIC_API_KEY 和 TASKFLOW_TOKEN。
-    // 一条 `set` 命令就能把它们打印出来，所以只给白名单里的那些
-    const env = childEnv({ NO_COLOR: '1', FORCE_COLOR: '0' })
+    // 一条 `set` 命令就能把它们打印出来，所以只给白名单里的那些（第 30 章）。
+    //
+    // 第 32 章：输出进了真正的终端（xterm.js），颜色就有意义了。
+    // 管道不是 TTY，大多数工具默认不输出颜色，FORCE_COLOR=1 让它们照样输出；
+    // NO_COLOR 不在白名单里，自然也传不进去。
+    // 给模型的那份结果会把颜色代码去掉（toPlainText）。
+    const env = childEnv({ FORCE_COLOR: '1' })
 
     const child = spawn(command, {
       cwd,
@@ -84,24 +96,37 @@ export function runShell(command, { cwd, timeoutMs = 30_000, maxOutput = 20_000,
       detached: !isWindows,
     })
 
-    const chunks = []
+    // stdout、stderr 各用一个解码器：两条管道的字节块互不相干，不能混在一起解
+    const decoders = {
+      stdout: createLineDecoder(encoding),
+      stderr: createLineDecoder(encoding),
+    }
+    const throttle = onOutput ? createOutputThrottle(onOutput) : null
+    /** 按到达顺序记下解码后的文本，和你在终端里看到的一致 */
+    const pieces = []
+
     let bytes = 0
     let timedOut = false
     let aborted = false
     let overflow = false
 
-    function onData(buf) {
+    function take(stream, text) {
+      if (!text) return
+      pieces.push(text)
+      throttle?.push(stream, text)
+    }
+
+    function onData(stream, buf) {
       bytes += buf.length
       if (bytes <= HARD_CAP_BYTES) {
-        chunks.push(buf)
+        take(stream, decoders[stream].write(buf))
       } else if (!overflow) {
         overflow = true
         killTree(child)
       }
     }
-    // stdout 和 stderr 合在一起，按到达顺序记录，和你在终端里看到的一致
-    child.stdout.on('data', onData)
-    child.stderr.on('data', onData)
+    child.stdout.on('data', (buf) => onData('stdout', buf))
+    child.stderr.on('data', (buf) => onData('stderr', buf))
 
     const timer = setTimeout(() => {
       timedOut = true
@@ -121,18 +146,21 @@ export function runShell(command, { cwd, timeoutMs = 30_000, maxOutput = 20_000,
 
     child.on('error', (err) => {
       cleanup()
+      throttle?.close()
       reject(err)
     })
 
     child.on('close', (code) => {
       cleanup()
-      // ⚠️ 按 UTF-8 解码。node / npm / git 的输出都是 UTF-8，没问题；
-      //    但 cmd 内置命令（dir、echo、type）按控制台代码页输出，
-      //    中文 Windows 上是 GBK，中文会变乱码。见本章"Windows 细节"一节。
-      const text = Buffer.concat(chunks).toString('utf8')
+      // 最后一行可能没有换行，解码器里还攒着
+      take('stdout', decoders.stdout.end())
+      take('stderr', decoders.stderr.end())
+      // 在 resolve 之前把最后一点输出推出去：保证浏览器先收到全部 tool_output，再收到 tool_end
+      throttle?.close()
+
       resolve({
         exitCode: code,
-        output: clipOutput(text, maxOutput),
+        output: clipOutput(toPlainText(pieces.join('')), maxOutput),
         timedOut,
         aborted,
         overflow,
