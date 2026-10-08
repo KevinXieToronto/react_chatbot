@@ -1,3 +1,4 @@
+# Logs
 logs
 *.log
 npm-debug.log*
@@ -11,6 +12,7 @@ dist
 dist-ssr
 *.local
 
+# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -23,3 +25,6 @@ dist-ssr
 
 server/.env
 server/db.json
+
+# npm pack 打出来的包（第 40 章）
+*.tgz

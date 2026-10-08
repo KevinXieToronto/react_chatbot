@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Box, Static, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import type { ChatMode, StreamChat, SubmitApproval } from '@taskflow/agent-core'
-import { API_URL } from './api'
+import { DEFAULT_API_URL } from './api'
 import { useChat } from './useChat'
 import { useHistory } from './history'
 import { COMMANDS, completeCommand, findCommand, parseCommand, type CommandContext } from './commands'
@@ -16,6 +16,8 @@ import { StatusBar } from './components/StatusBar'
 import { ToolLine } from './components/ToolLine'
 
 interface Props {
+  /** 后端地址，显示在标题栏上（第 40 章起由入口按配置传进来） */
+  apiUrl?: string
   /** 测试时注入假的流；不传就用真正的 fetch */
   stream?: StreamChat
   /** 测试时注入假的审批接口（第 39 章） */
@@ -33,7 +35,14 @@ const HEADER: Entry = { kind: 'header', id: 'header' }
 /** 清屏 + 清掉回滚区 + 光标回到左上角 */
 const CLEAR_TERMINAL = '\x1b[2J\x1b[3J\x1b[H'
 
-export function App({ stream, submitApproval, timeoutMs, initialMode = 'tasks', historyFile }: Props) {
+export function App({
+  apiUrl = DEFAULT_API_URL,
+  stream,
+  submitApproval,
+  timeoutMs,
+  initialMode = 'tasks',
+  historyFile,
+}: Props) {
   const { exit } = useApp()
   const { stdout } = useStdout()
   // 终端的宽高。用户拖动窗口大小时，这个 Hook 会让组件重新渲染
@@ -150,7 +159,7 @@ export function App({ stream, submitApproval, timeoutMs, initialMode = 'tasks', 
     <Box flexDirection="column">
       {/* 写进去就不再重画。清屏时换一个 key，让它从标题栏重新开始 */}
       <Static key={staticKey} items={[HEADER, ...entries]}>
-        {(entry) => <EntryView key={entry.id} entry={entry} width={columns} apiUrl={API_URL} mode={mode} />}
+        {(entry) => <EntryView key={entry.id} entry={entry} width={columns} apiUrl={apiUrl} mode={mode} />}
       </Static>
 
       {/* 动态区：只剩还在跑的工具、还没写完的那一块 */}

@@ -8,14 +8,12 @@ import {
 import { TOKEN_HEADER, UNAUTHORIZED_MESSAGE, resolveToken } from './token'
 
 // 第 36 章：SSE 解析、事件类型、流式请求都来自共享核心。
-// 这个文件是终端版的"适配器"：决定后端地址和访问令牌，
-// 并把"连不上"、"401"翻译成终端用户看得懂的话。核心不读环境变量，这些都由这里提供。
+// 这个文件是终端版的"适配器"：造客户端，把令牌放进请求头，
+// 并把"连不上"、"401"翻译成终端用户看得懂的话。核心不读环境变量，这些都由终端这一侧提供。
+// 第 40 章起，后端地址从哪来（命令行参数、环境变量、配置文件）由 config.ts 决定。
 
-/** 后端地址：默认直连 3001（终端里没有 Vite 代理），可用环境变量覆盖 */
-export const API_URL = process.env.TASKFLOW_API_URL ?? 'http://localhost:3001'
-
-/** 访问令牌（第 30 章）：环境变量 TASKFLOW_TOKEN，或 server/.env 里的 TASKFLOW_TOKEN */
-export const TOKEN = resolveToken()
+/** 默认直连 3001：终端里没有 Vite 代理 */
+export const DEFAULT_API_URL = 'http://localhost:3001'
 
 /**
  * 基于核心客户端，造一个终端用的客户端（第 39 章起还要回传审批，所以返回整个 client）。
@@ -59,4 +57,5 @@ export function createCliClient(baseUrl: string, token?: string): AgentClient {
   return { streamChat, submitApproval }
 }
 
-export const cliClient = createCliClient(API_URL, TOKEN)
+/** 没有指定地址时用的客户端（测试和 useChat 的默认值）：令牌按环境变量 / server/.env 找 */
+export const cliClient = createCliClient(DEFAULT_API_URL, resolveToken())

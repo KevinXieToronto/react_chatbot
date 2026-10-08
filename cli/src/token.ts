@@ -8,7 +8,7 @@ export const TOKEN_HEADER = 'x-taskflow-token'
 
 /** 后端回 401 时，终端里显示的话 */
 export const UNAUTHORIZED_MESSAGE =
-  '后端拒绝了请求（401）：缺少或错误的访问令牌。请设置环境变量 TASKFLOW_TOKEN，或确认 server/.env 里有 TASKFLOW_TOKEN（和后端用的是同一个值）。'
+  '后端拒绝了请求（401）：缺少或错误的访问令牌。请用 --token 参数、环境变量 TASKFLOW_TOKEN，或 server/.env 里的 TASKFLOW_TOKEN 提供令牌（和后端用的是同一个值）。'
 
 /** server/.env 的可能位置：先按本文件的位置往上找，再按当前目录找 */
 function defaultEnvFiles(): string[] {
