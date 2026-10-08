@@ -1,5 +1,5 @@
 import { Text, useAnimation } from 'ink'
-import { describePhase, type TurnState } from '../../../src/features/copilot/turnReducer'
+import { describePhase, type TurnState } from '@taskflow/agent-core'
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 

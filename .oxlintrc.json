@@ -12,6 +12,27 @@
       "rules": {
         "react/only-export-components": "off"
       }
+    },
+    {
+      "files": ["packages/agent-core/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              { "group": ["react", "react-dom", "ink", "ink-*"], "message": "核心不能依赖 UI 框架" },
+              { "group": ["node:*"], "message": "核心要能在浏览器里跑，不能用 Node 内置模块" }
+            ]
+          }
+        ],
+        "no-restricted-globals": [
+          "error",
+          { "name": "process", "message": "核心不读环境变量，配置由宿主通过参数传入" },
+          { "name": "window", "message": "核心不能依赖浏览器" },
+          { "name": "document", "message": "核心不能依赖浏览器" },
+          { "name": "localStorage", "message": "核心不能依赖浏览器" }
+        ]
+      }
     }
   ]
 }

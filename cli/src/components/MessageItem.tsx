@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink'
-import type { ChatMessage } from '../../../src/types/chat'
+import type { ChatMessage } from '@taskflow/agent-core'
 import { ToolLine } from './ToolLine'
 
 /** 一条消息。定稿的历史消息和正在流式的消息都用它画 */

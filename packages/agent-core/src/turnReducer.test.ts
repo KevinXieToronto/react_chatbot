@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { turnReducer, initialTurnState, describePhase } from './turnReducer'
 import type { TurnAction, TurnState } from './turnReducer'
-import type { PendingApproval } from '../../types/chat'
+import type { PendingApproval } from './chat'
 
 /** 从初始状态开始依次执行一串 action */
 function run(...actions: TurnAction[]): TurnState {

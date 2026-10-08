@@ -1,6 +1,5 @@
 import { Box, Text } from 'ink'
-import type { ToolCall } from '../../../src/types/chat'
-import { TOOL_LABELS } from '../../../src/features/copilot/turnReducer'
+import { TOOL_LABELS, type ToolCall } from '@taskflow/agent-core'
 
 /** 一次工具调用 = 一行：⏺ 查询任务 … ✓ 找到 2 条任务 */
 export function ToolLine({ call }: { call: ToolCall }) {

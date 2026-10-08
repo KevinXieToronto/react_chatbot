@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, cleanup } from 'ink-testing-library'
 import { App } from './App'
-import { streamChat, type ChatEvent, type StreamChat } from './api'
+import type { ChatStreamEvent, StreamChat } from '@taskflow/agent-core'
+import { createStreamChat } from './api'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -14,7 +15,7 @@ async function typeAndSubmit(stdin: { write: (s: string) => void }, text: string
 }
 
 /** 一个假的后端：按顺序吐出事件，每个之间停 10ms */
-function fakeStream(events: ChatEvent[]): StreamChat {
+function fakeStream(events: ChatStreamEvent[]): StreamChat {
   return async function* () {
     for (const e of events) {
       await sleep(10)
@@ -58,7 +59,7 @@ describe('App', () => {
   it('输出中按 Esc：中止请求，保留已输出的部分', async () => {
     let aborted = false
     // 吐出一个字之后就一直等，直到被中止
-    const stream: StreamChat = async function* (_messages, signal) {
+    const stream: StreamChat = async function* (_messages, { signal }) {
       yield { type: 'delta', text: '写到一半' }
       await new Promise<void>((_resolve, reject) => {
         signal.addEventListener('abort', () => {
@@ -81,7 +82,7 @@ describe('App', () => {
   })
 
   it('超时算作中止，并提示"响应超时"', async () => {
-    const stream: StreamChat = async function* (_messages, signal) {
+    const stream: StreamChat = async function* (_messages, { signal }) {
       yield { type: 'delta', text: '想一想' }
       await new Promise<void>((_resolve, reject) => {
         signal.addEventListener('abort', () => reject(signal.reason))
@@ -102,8 +103,8 @@ describe('streamChat', () => {
     // 3999 端口上没有服务在监听，连接会被拒绝（ECONNREFUSED）
     const url = 'http://127.0.0.1:3999'
     const signal = new AbortController().signal
-    const events: ChatEvent[] = []
-    for await (const e of streamChat([{ role: 'user', content: 'hi' }], signal, url)) {
+    const events: ChatStreamEvent[] = []
+    for await (const e of createStreamChat(url)([{ role: 'user', content: 'hi' }], { signal })) {
       events.push(e)
     }
     expect(events).toEqual([

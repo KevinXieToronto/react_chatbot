@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-// 网页端的状态机是纯函数，终端里原样复用（第 25 章）
+// 第 36 章：状态机、消息类型、isAbortError 都来自共享核心 —— 和网页端跑的是同一份代码
 import {
+  isAbortError,
+  toWire,
   turnReducer,
   initialTurnState,
+  type ChatMessage,
+  type StreamChat,
   type TurnAction,
   type TurnState,
-} from '../../src/features/copilot/turnReducer'
-import { toWire, type ChatMessage } from '../../src/types/chat'
-import { isAbortError, streamChat as defaultStreamChat, type StreamChat } from './api'
+} from '@taskflow/agent-core'
+import { streamChat as defaultStreamChat } from './api'
 
 /** 攒多久提交一次文本。40ms ≈ 25 次/秒，肉眼看是连续的 */
 const FLUSH_MS = 40
@@ -133,7 +136,7 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000 }: Opt
       let timedOut = false
 
       try {
-        for await (const evt of stream(toWire(history), signal)) {
+        for await (const evt of stream(toWire(history), { signal })) {
           switch (evt.type) {
             case 'delta':
               apply({ type: 'delta', text: evt.text })
@@ -150,6 +153,7 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000 }: Opt
             case 'error':
               apply({ type: 'error', message: evt.message })
               break
+            // 审批、命令输出、上下文这些事件，后面几章再接
           }
         }
         // parseSSE 发现 signal 已中止时会直接结束循环，不抛错 —— 这里补上
