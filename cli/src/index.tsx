@@ -8,9 +8,13 @@ if (!process.stdin.isTTY) {
   process.exit(1)
 }
 
-// exitOnCtrlC: false —— Ctrl+C 交给 App 自己处理：
-// 忙的时候是"中止这一轮"，空闲时才是"退出"
-const { waitUntilExit } = render(<App />, { exitOnCtrlC: false })
+const { waitUntilExit } = render(<App />, {
+  // Ctrl+C 交给 App 自己处理：忙的时候是"中止这一轮"，空闲时才是"退出"
+  exitOnCtrlC: false,
+  // 第 38 章：kitty 键盘协议能让 Shift+Enter 和 Enter 区分开，但要终端支持。
+  // 默认不开，设了 TASKFLOW_KITTY_KEYBOARD=1 才开（原因见第 38 章第二节）
+  kittyKeyboard: process.env.TASKFLOW_KITTY_KEYBOARD === '1' ? { mode: 'enabled' } : undefined,
+})
 
 await waitUntilExit()
 console.log('再见！')

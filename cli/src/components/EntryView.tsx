@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink'
 import type { Token } from 'marked'
+import type { ChatMode } from '@taskflow/agent-core'
 import { MarkdownBlock } from '../markdown/Markdown'
 import type { Entry } from '../transcript'
 import { Header } from './Header'
@@ -37,13 +38,15 @@ interface EntryViewProps {
   entry: Entry
   width: number
   apiUrl: string
+  /** 标题栏上显示的模式（画标题栏那一刻的模式） */
+  mode: ChatMode
 }
 
 /** <Static> 里的一条记录 */
-export function EntryView({ entry, width, apiUrl }: EntryViewProps) {
+export function EntryView({ entry, width, apiUrl, mode }: EntryViewProps) {
   switch (entry.kind) {
     case 'header':
-      return <Header apiUrl={apiUrl} />
+      return <Header apiUrl={apiUrl} mode={mode} />
     case 'user':
       return (
         <Box marginBottom={1}>
@@ -62,9 +65,7 @@ export function EntryView({ entry, width, apiUrl }: EntryViewProps) {
       const text = entry.tone === 'error' ? `✗ ${entry.text}` : entry.tone === 'warn' ? `（${entry.text}）` : entry.text
       return (
         <Box marginBottom={1} paddingLeft={2}>
-          <Text color={color} dimColor={entry.tone === 'info'}>
-            {text}
-          </Text>
+          <Text color={color}>{text}</Text>
         </Box>
       )
     }

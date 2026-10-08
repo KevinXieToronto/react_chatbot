@@ -3,6 +3,7 @@ import {
   cacheHitRate,
   describePhase,
   estimateCost,
+  type ChatMode,
   type ContextReport,
   type TurnState,
   type UsageTotals,
@@ -11,6 +12,8 @@ import {
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
 interface Props {
+  /** 当前模式（第 38 章）：标题栏只画一次，模式要一直看得见，就放在这里 */
+  mode: ChatMode
   turn: TurnState
   busy: boolean
   count: number
@@ -33,7 +36,7 @@ function stats({ context, usage, lastUsage }: Pick<Props, 'context' | 'usage' | 
   return parts
 }
 
-export function StatusBar({ turn, busy, count, context, usage, lastUsage }: Props) {
+export function StatusBar({ mode, turn, busy, count, context, usage, lastUsage }: Props) {
   // 只有忙的时候才转，空闲时不产生任何重渲染
   const { frame } = useAnimation({ interval: 80, isActive: busy })
   const info = stats({ context, usage, lastUsage })
@@ -41,14 +44,16 @@ export function StatusBar({ turn, busy, count, context, usage, lastUsage }: Prop
   // 一行放不下时从右边截断：最不重要的快捷键提示先被截掉
   if (!busy) {
     return (
-      <Text dimColor wrap="truncate-end">
-        {['就绪', `${count} 条消息`, ...info, 'Enter 发送 · Ctrl+C 退出'].join(' · ')}
+      <Text wrap="truncate-end">
+        <Text color="cyan">[{mode}] </Text>
+        <Text dimColor>{['就绪', `${count} 条消息`, ...info, '/help 查看命令 · Ctrl+C 退出'].join(' · ')}</Text>
       </Text>
     )
   }
 
   return (
     <Text wrap="truncate-end">
+      <Text color="cyan">[{mode}] </Text>
       <Text color="yellow">{SPINNER[frame % SPINNER.length]} </Text>
       <Text>{describePhase(turn) ?? '正在输出…'}</Text>
       <Text dimColor>{[...info.map((s) => ` · ${s}`), ' · Esc / Ctrl+C 中止'].join('')}</Text>

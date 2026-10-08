@@ -1,8 +1,24 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, cleanup } from 'ink-testing-library'
 import { App } from './App'
 import type { ChatStreamEvent, StreamChat } from '@taskflow/agent-core'
 import { createStreamChat } from './api'
+
+/** 每个测试一个临时的历史文件，不碰你主目录里真正的历史 */
+function tempHistory(entries: string[] = []): string {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-')), 'history.json')
+  fs.writeFileSync(file, JSON.stringify(entries))
+  return file
+}
+
+/** 渲染 App；没指定历史文件时用一个临时的 */
+function renderApp(props: ComponentProps<typeof App>) {
+  return render(<App historyFile={tempHistory()} {...props} />)
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -30,7 +46,7 @@ afterEach(() => {
 
 describe('App', () => {
   it('启动时显示标题栏和"就绪"', () => {
-    const { lastFrame } = render(<App stream={fakeStream([])} />)
+    const { lastFrame } = renderApp({ stream: fakeStream([]) })
     expect(lastFrame()).toContain('TaskFlow Copilot')
     expect(lastFrame()).toContain('就绪 · 0 条消息')
   })
@@ -43,7 +59,7 @@ describe('App', () => {
       { type: 'delta', text: '2 条任务' },
       { type: 'done', stopReason: 'end_turn' },
     ])
-    const { stdin, lastFrame } = render(<App stream={stream} />)
+    const { stdin, lastFrame } = renderApp({ stream })
 
     await typeAndSubmit(stdin, '还有哪些任务')
 
@@ -68,7 +84,7 @@ describe('App', () => {
         })
       })
     }
-    const { stdin, lastFrame } = render(<App stream={stream} />)
+    const { stdin, lastFrame } = renderApp({ stream })
 
     await typeAndSubmit(stdin, '你好')
     await vi.waitFor(() => expect(lastFrame()).toContain('写到一半'))
@@ -89,7 +105,7 @@ describe('App', () => {
       })
     }
     // 把超时从 120 秒调成 200 毫秒，测试不用干等
-    const { stdin, lastFrame } = render(<App stream={stream} timeoutMs={200} />)
+    const { stdin, lastFrame } = renderApp({ stream, timeoutMs: 200 })
 
     await typeAndSubmit(stdin, '你好')
 
@@ -103,7 +119,7 @@ describe('App', () => {
       { type: 'delta', text: '| --- | --- |\n| 写周报 | todo |\n\n完。' },
       { type: 'done', stopReason: 'end_turn' },
     ])
-    const { stdin, lastFrame } = render(<App stream={stream} />)
+    const { stdin, lastFrame } = renderApp({ stream })
     await typeAndSubmit(stdin, '任务')
 
     await vi.waitFor(() => expect(lastFrame()).toContain('就绪 · 2 条消息'))
@@ -126,7 +142,7 @@ describe('App', () => {
       yield { type: 'tool_end', id: 'c1', ok: true, summary: '退出码 0' }
       yield { type: 'done', stopReason: 'end_turn' }
     }
-    const { stdin, lastFrame } = render(<App stream={stream} />)
+    const { stdin, lastFrame } = renderApp({ stream })
     await typeAndSubmit(stdin, '跑一下构建')
 
     await vi.waitFor(() => expect(lastFrame()).toContain('⎿ [1/2] 编译 90%'))
@@ -148,12 +164,72 @@ describe('App', () => {
         usage: { input_tokens: 0, output_tokens: 100, cache_read_input_tokens: 950, cache_creation_input_tokens: 50 },
       },
     ])
-    const { stdin, lastFrame } = render(<App stream={stream} />)
+    const { stdin, lastFrame } = renderApp({ stream })
     await typeAndSubmit(stdin, '你好')
 
     await vi.waitFor(() => expect(lastFrame()).toContain('就绪 · 2 条消息'))
     expect(lastFrame()).toContain('上下文 ≈1,314 / 100,000')
     expect(lastFrame()).toContain('缓存命中 95%')
+  })
+})
+
+describe('输入与命令（第 38 章）', () => {
+  it('/help 只在本地显示，不会发给模型', async () => {
+    const stream = vi.fn(fakeStream([]))
+    const { stdin, lastFrame } = renderApp({ stream })
+    await typeAndSubmit(stdin, '/help')
+
+    await vi.waitFor(() => expect(lastFrame()).toContain('/mode tasks|code|sdk'))
+    expect(stream).not.toHaveBeenCalled()
+    expect(lastFrame()).toContain('就绪 · 0 条消息')
+  })
+
+  it('/mode code 之后，请求里带上 mode；状态栏显示当前模式', async () => {
+    const stream = vi.fn(fakeStream([{ type: 'done', stopReason: 'end_turn' }]))
+    const { stdin, lastFrame } = renderApp({ stream })
+    expect(lastFrame()).toContain('[tasks]')
+
+    await typeAndSubmit(stdin, '/mode code')
+    await vi.waitFor(() => expect(lastFrame()).toContain('[code]'))
+    expect(lastFrame()).toContain('已切换到 code 模式')
+
+    await typeAndSubmit(stdin, '列出文件')
+    await vi.waitFor(() => expect(stream).toHaveBeenCalled())
+    expect(stream.mock.calls[0][1]).toMatchObject({ mode: 'code' })
+  })
+
+  it('不认识的命令：提示，而不是发给模型', async () => {
+    const stream = vi.fn(fakeStream([]))
+    const { stdin, lastFrame } = renderApp({ stream })
+    await typeAndSubmit(stdin, '/deploy')
+
+    await vi.waitFor(() => expect(lastFrame()).toContain('没有 /deploy 这个命令'))
+    expect(stream).not.toHaveBeenCalled()
+  })
+
+  it('输入 / 时出现补全提示，Tab 补全', async () => {
+    const { stdin, lastFrame } = renderApp({ stream: fakeStream([]) })
+    await sleep(50)
+    stdin.write('/mo')
+    await vi.waitFor(() => expect(lastFrame()).toContain('Tab 补全'))
+    stdin.write('\t')
+    await vi.waitFor(() => expect(lastFrame()).toContain('/mode tasks|code|sdk —— 切换模式'))
+  })
+
+  it('↑ 翻出历史文件里的上一条；Esc 清空输入', async () => {
+    const { stdin, lastFrame } = renderApp({ stream: fakeStream([]), historyFile: tempHistory(['上一次问的问题']) })
+    await sleep(50)
+    stdin.write('\u001B[A') // ↑
+    await vi.waitFor(() => expect(lastFrame()).toContain('❯ 上一次问的问题'))
+    stdin.write('\u001B') // Esc
+    await vi.waitFor(() => expect(lastFrame()).toContain('输入消息，Enter 发送'))
+  })
+
+  it('发出去的话会写进历史文件', async () => {
+    const file = tempHistory()
+    const { stdin } = renderApp({ stream: fakeStream([{ type: 'done', stopReason: 'end_turn' }]), historyFile: file })
+    await typeAndSubmit(stdin, '记住这一句')
+    await vi.waitFor(() => expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual(['记住这一句']))
   })
 })
 

@@ -6,6 +6,7 @@ import {
   turnReducer,
   initialTurnState,
   type ChatMessage,
+  type ChatMode,
   type ContextReport,
   type StreamChat,
   type TurnAction,
@@ -22,6 +23,8 @@ const FLUSH_MS = 40
 interface Options {
   stream?: StreamChat
   timeoutMs?: number
+  /** 对话模式（第 38 章），随请求发给后端 */
+  mode?: ChatMode
 }
 
 /** 动态区要画的东西：还没定稿的段落，从第 cursor 段开始 */
@@ -84,7 +87,7 @@ function finalize(turn: LiveTurn, timedOut: boolean): ChatMessage {
   }
 }
 
-export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000 }: Options = {}) {
+export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode = 'tasks' }: Options = {}) {
   /** 对话历史：发请求时用（toWire） */
   const [messages, setMessages] = useState<ChatMessage[]>([])
   /** 已经定稿、交给 <Static> 的记录：只追加，不修改 */
@@ -188,7 +191,7 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000 }: Opt
       let timedOut = false
 
       try {
-        for await (const evt of stream(toWire(history), { signal })) {
+        for await (const evt of stream(toWire(history), { signal, mode })) {
           switch (evt.type) {
             case 'delta':
               apply({ type: 'delta', text: evt.text })
@@ -281,11 +284,32 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000 }: Opt
         setMessages(messagesRef.current)
       }
     },
-    [stream, timeoutMs, apply, flush, schedule, nextId],
+    [stream, timeoutMs, mode, apply, flush, schedule, nextId],
   )
 
   const abort = useCallback(() => {
     controllerRef.current?.abort()
+  }, [])
+
+  /** 在对话里印一条提示（斜杠命令的输出）。只进 <Static>，不进历史，不会发给模型 */
+  const notify = useCallback(
+    (text: string, tone: 'info' | 'warn' | 'error' = 'info') => {
+      setEntries((prev) => [...prev, { kind: 'notice', id: nextId(), tone, text }])
+    },
+    [nextId],
+  )
+
+  /** 清屏时用：屏幕上的记录清掉，对话历史（发给模型的上下文）保留 */
+  const clearEntries = useCallback(() => setEntries([]), [])
+
+  /** 新会话：对话历史、用量统计全部清空 */
+  const resetSession = useCallback(() => {
+    messagesRef.current = []
+    setMessages([])
+    setEntries([])
+    setContext(null)
+    setUsage(null)
+    setLastUsage(null)
   }, [])
 
   // 组件卸载（退出程序）时：取消进行中的请求，清掉挂起的定时器
@@ -296,5 +320,20 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000 }: Opt
     }
   }, [])
 
-  return { messages, entries, turn, live, outputs, context, usage, lastUsage, busy, send, abort }
+  return {
+    messages,
+    entries,
+    turn,
+    live,
+    outputs,
+    context,
+    usage,
+    lastUsage,
+    busy,
+    send,
+    abort,
+    notify,
+    clearEntries,
+    resetSession,
+  }
 }
