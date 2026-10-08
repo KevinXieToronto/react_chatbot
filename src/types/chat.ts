@@ -56,8 +56,11 @@ export interface WireMessage {
   content: string
 }
 
-/** 对话模式：决定后端用哪套工具和系统提示词 */
-export type ChatMode = 'tasks' | 'code'
+/**
+ * 对话模式：决定后端用哪套工具和系统提示词。
+ * sdk（第 34 章）：还是代码助手，但由 OpenAI Agents SDK 跑循环
+ */
+export type ChatMode = 'tasks' | 'code' | 'sdk'
 
 /**
  * useChat 需要的"消息存储"接口。

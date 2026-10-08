@@ -52,6 +52,11 @@ const PROFILES = {
     mock: mockCodeAgent,
     mockScript: codeMockScript,
   },
+  // 第 34 章：同一个代码助手，换成 OpenAI Agents SDK 当引擎。
+  // 循环在 SDK 里，工具和提示词就是上面 code 的那一套（见 sdkAgent.js），这里只需要一个标记，路由看到它就走另一条路
+  sdk: {
+    engine: 'sdk',
+  },
 }
 
 /** 按 mode 取配置。不认识的 mode 返回 null（路由会回 400） */

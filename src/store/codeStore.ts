@@ -4,6 +4,9 @@ import type { ChatMessage } from '../types/chat'
 /** 右边面板的三个标签：文件 / 变更（第 31 章）/ 终端（第 32 章） */
 export type PanelTab = 'files' | 'changes' | 'terminal'
 
+/** 代码助手用哪个引擎：code = 第 29~33 章手写的循环，sdk = OpenAI Agents SDK（第 34 章） */
+export type CodeEngine = 'code' | 'sdk'
+
 /**
  * 代码助手的状态。
  *
@@ -21,6 +24,7 @@ interface CodeState {
   panelTab: PanelTab
   /** 终端里显示哪一次 run_command（ToolCall.id）。null = 默认显示最近一次 */
   terminalId: string | null
+  engine: CodeEngine
 }
 
 interface CodeActions {
@@ -34,6 +38,7 @@ interface CodeActions {
   setPanelTab: (tab: PanelTab) => void
   /** 切到"终端"标签并显示某条命令的输出 */
   showTerminal: (toolUseId: string) => void
+  setEngine: (engine: CodeEngine) => void
 }
 
 export const useCodeStore = create<CodeState & CodeActions>()((set) => ({
@@ -43,6 +48,7 @@ export const useCodeStore = create<CodeState & CodeActions>()((set) => ({
   changedPaths: [],
   panelTab: 'files',
   terminalId: null,
+  engine: 'code',
 
   addMessage: (message) => set((s) => ({ messages: [...s.messages, message] })),
 
@@ -68,4 +74,5 @@ export const useCodeStore = create<CodeState & CodeActions>()((set) => ({
 
   setPanelTab: (panelTab) => set({ panelTab }),
   showTerminal: (terminalId) => set({ terminalId, panelTab: 'terminal' }),
+  setEngine: (engine) => set({ engine }),
 }))

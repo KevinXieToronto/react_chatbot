@@ -186,8 +186,9 @@ export async function runAgentLoop(messages, profile, handlers, signal, options 
  * read_file 这种本来就是文本的结果原样给，别再 JSON.stringify 一遍 ——
  * 否则换行全变成 \n 转义，模型读代码会很别扭。
  * OpenAI 的 tool 消息没有 is_error 字段，失败就用 { error } 告诉模型。
+ * 第 34 章的 SDK 引擎也用它：两个引擎交给模型的工具结果格式一样。
  */
-function toResultContent(result) {
+export function toResultContent(result) {
   if (!result.ok) return JSON.stringify({ error: result.error })
   return typeof result.data === 'string' ? result.data : JSON.stringify(result.data)
 }

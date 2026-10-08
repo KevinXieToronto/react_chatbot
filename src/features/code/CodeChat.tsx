@@ -1,4 +1,5 @@
-import { useCodeStore } from '../../store/codeStore'
+import { useCodeStore, type CodeEngine } from '../../store/codeStore'
+import type { InvalidateEvent } from '../../api/chatApi'
 import type { ChatSession } from '../../types/chat'
 import { useChat } from '../copilot/useChat'
 import MessageList from '../copilot/MessageList'
@@ -6,20 +7,25 @@ import ChatComposer from '../copilot/ChatComposer'
 import StopBar from '../copilot/StopBar'
 import ApprovalCard from '../copilot/ApprovalCard'
 import ContextMeter from '../copilot/ContextMeter'
+import { useTaskSync } from '../copilot/useTaskSync'
 import { useFileSync } from './useFileSync'
 import { useTerminalSync } from './useTerminalSync'
 import { clearOutputs } from './terminalBuffer'
 
-const SUGGESTIONS = [
-  '列出文件',
-  '跑一下测试',
-  '跑一下构建',
-  '启动开发服务器',
-  '把所有文件都读一遍',
-  '帮我修复 bug',
-  '新建文件 src/clamp.js',
-  '用命令看看 ../server/.env',
-]
+const SUGGESTIONS: Record<CodeEngine, string[]> = {
+  code: [
+    '列出文件',
+    '跑一下测试',
+    '跑一下构建',
+    '启动开发服务器',
+    '把所有文件都读一遍',
+    '帮我修复 bug',
+    '新建文件 src/clamp.js',
+    '用命令看看 ../server/.env',
+  ],
+  // 第 34 章：SDK 引擎在 Mock 模式下只有这几段剧本
+  sdk: ['读一下 README.md', '我还有哪些任务没做完', '新建 notes.md', '用命令打个招呼', '读一下 ../server/.env'],
+}
 
 /** 在回调里现取消息，不经过渲染闭包（见 useChat 的 send）。定义在组件外，引用稳定 */
 const getCodeMessages = () => useCodeStore.getState().messages
@@ -29,6 +35,8 @@ export default function CodeChat() {
   const messages = useCodeStore((s) => s.messages)
   const busy = useCodeStore((s) => s.busy)
   const clearMessages = useCodeStore((s) => s.clearMessages)
+  const engine = useCodeStore((s) => s.engine)
+  const setEngine = useCodeStore((s) => s.setEngine)
 
   const session: ChatSession = {
     messages,
@@ -41,9 +49,16 @@ export default function CodeChat() {
 
   const syncFiles = useFileSync()
   const syncTerminal = useTerminalSync()
+  const syncTasks = useTaskSync()
+  // SDK 引擎还能通过 MCP 改任务（第 34 章），任务的缓存也要跟着刷新
+  const onInvalidate = (evt: InvalidateEvent) => {
+    if (evt.resource === 'tasks') syncTasks(evt.op, evt.task)
+    else syncFiles(evt)
+  }
   const { send, stop, retry, decide, approval, phaseText, context, usage } = useChat(session, {
-    mode: 'code',
-    onInvalidate: syncFiles,
+    // 第 34 章：mode 跟着引擎走。两个引擎发来的事件完全一样，下面的界面一行都不用分支
+    mode: engine,
+    onInvalidate,
     // 第 32 章：命令的实时输出直接进终端，不经过消息状态
     onToolOutput: syncTerminal,
   })
@@ -53,7 +68,21 @@ export default function CodeChat() {
   return (
     <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
       <header className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-700">
-        <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">对话</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">对话</h2>
+          <label className="flex items-center gap-1 text-xs text-slate-400">
+            引擎
+            <select
+              value={engine}
+              disabled={busy}
+              onChange={(e) => setEngine(e.target.value as CodeEngine)}
+              className="rounded border border-slate-200 bg-white px-1 py-0.5 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            >
+              <option value="code">手写循环</option>
+              <option value="sdk">OpenAI Agents SDK</option>
+            </select>
+          </label>
+        </div>
         <button
           type="button"
           disabled={busy || messages.length === 0}
@@ -86,7 +115,7 @@ export default function CodeChat() {
 
       {messages.length === 0 && (
         <div className="flex flex-wrap gap-1 border-t border-slate-100 px-3 py-2 dark:border-slate-700">
-          {SUGGESTIONS.map((s) => (
+          {SUGGESTIONS[engine].map((s) => (
             <button
               key={s}
               type="button"
@@ -100,7 +129,8 @@ export default function CodeChat() {
       )}
 
       {/* 第 33 章：上下文条。代码助手的工具结果（读文件、跑命令）是上下文增长的大头 */}
-      <ContextMeter context={context} usage={usage} />
+      {/* 第 34 章：第 33 章的上下文管理只写在手写循环里，SDK 引擎不发 context 事件，切过去之后别显示手写循环留下的旧数字 */}
+      <ContextMeter context={engine === 'code' ? context : null} usage={usage} />
 
       {busy && <StopBar text={phaseText} onStop={stop} />}
 

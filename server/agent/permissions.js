@@ -23,18 +23,28 @@ const POLICY = {
 }
 
 /**
+ * SDK 引擎（第 34 章）里，任务工具通过 MCP 交给 OpenAI Agents SDK，
+ * 模型看到的名字是 mcp_taskflow__list_tasks 这种（SDK 按 mcp_<服务器名>__<工具名> 加的前缀）。
+ * 去掉前缀再查表，两种引擎用的就是同一条规则。
+ */
+function policyName(name) {
+  return String(name).replace(/^mcp_taskflow__/, '')
+}
+
+/**
  * 要不要先问用户。
  * ⚠️ 不在表里的工具一律按 'ask' 处理（fail-safe）：
  *    以后新加了工具却忘了登记，宁可多问一次，也不能默认放行。
  */
 export function needsApproval(name) {
-  const rule = Object.hasOwn(POLICY, name) ? POLICY[name] : 'ask'
+  const key = policyName(name)
+  const rule = Object.hasOwn(POLICY, key) ? POLICY[key] : 'ask'
   return rule === 'ask'
 }
 
 /** 给用户看的一句话：这个操作会造成什么影响 */
 export function approvalReason(name, input) {
-  switch (name) {
+  switch (policyName(name)) {
     case 'create_file':
       return `会新建文件 ${input?.path ?? ''}`
     case 'edit_file':

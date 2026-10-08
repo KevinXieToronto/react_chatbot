@@ -5,6 +5,8 @@ import { buildRequest } from '../agent/context.js'
 import { fitContext, createSummarizer, mockSummarize } from '../agent/contextManager.js'
 import { simulateUsage } from '../agent/cacheSimulator.js'
 import { createScriptedClient } from '../agent/scriptedClient.js'
+import { runSdkAgent } from '../agent/sdkAgent.js'
+import { createMockSdkModel } from '../agent/mockSdk.js'
 import { getProfile } from '../agent/profiles.js'
 import { createToolRunner } from '../agent/toolRunner.js'
 import { openStream, sleep, sse } from '../agent/stream.js'
@@ -99,13 +101,26 @@ chatRouter.post('/', rateLimit({ windowMs: 60_000, max: 20 }), async (req, res) 
   const history = messages.map((m) => ({ role: m.role, content: m.content }))
   const lastUser = [...history].reverse().find((m) => m.role === 'user')
 
-  // 三种跑法：
+  // 几种跑法：
+  //   SDK 引擎（mode: 'sdk'）—— OpenAI Agents SDK 跑循环（第 34 章），Mock 时给它换上脚本化的假模型
   //   真实模式 —— 真的 OpenAI + 真实循环
   //   Mock + 有剧本 —— 脚本化的假模型 + 真实循环（第 33 章，能看到上下文管理和缓存）
   //   Mock + 没剧本 —— 老的 Mock：剧本自己调工具，不经过循环
   const script = isMock() ? profile.mockScript?.(lastUser?.content) : null
 
   try {
+    // 第 34 章：SDK 引擎。事件翻译、审批都在 runSdkAgent 里，done 也由它发；出错抛到下面的 catch
+    if (profile.engine === 'sdk') {
+      await runSdkAgent({
+        messages: history,
+        emit: (event, data) => sse(res, event, data),
+        signal: abort.signal,
+        // 没有 key 时换上假模型；有 key 时不传，用真正的 OpenAI 模型
+        model: isMock() ? createMockSdkModel() : undefined,
+      })
+      return res.end()
+    }
+
     if (isMock() && !script) {
       // 老的 Mock 不经过循环，这里手动做一遍上下文整理，让上下文条也有数字可看
       const fitted = await fitContext(history, profile, { client: null, summarize: mockSummarize })

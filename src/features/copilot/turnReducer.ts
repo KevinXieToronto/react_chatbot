@@ -180,4 +180,10 @@ export const TOOL_LABELS: Record<string, string> = {
   create_file: '新建文件',
   edit_file: '修改文件',
   run_command: '运行命令',
+  // 通过 MCP 交给 OpenAI Agents SDK 的任务工具（第 34 章）。
+  // SDK 引擎的代码工具就是上面那几个，不用另外登记
+  mcp_taskflow__list_tasks: '查询任务',
+  mcp_taskflow__create_task: '创建任务',
+  mcp_taskflow__update_task: '更新任务',
+  mcp_taskflow__delete_task: '删除任务',
 }

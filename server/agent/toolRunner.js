@@ -2,8 +2,8 @@ import { sse, sleep } from './stream.js'
 import { needsApproval, approvalReason } from './permissions.js'
 import { requestApproval } from './approvals.js'
 
-/** 用户拒绝（或超时）时返回给模型的结果 */
-function deniedResult(decision) {
+/** 用户拒绝（或超时）时返回给模型的结果。第 34 章的 SDK 引擎也用它，两个引擎对模型说的话一样 */
+export function deniedResult(decision) {
   const byTimeout = decision.by === 'timeout'
   const why = byTimeout ? '用户没有在规定时间内确认，已自动拒绝' : '用户拒绝了这次操作'
   const note = decision.note ? `，用户的备注：「${decision.note}」` : ''
