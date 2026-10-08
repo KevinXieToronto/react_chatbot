@@ -1,4 +1,5 @@
 import type { DiffPreview } from '../lib/diff'
+import type { UsageTotals } from '../lib/tokenCost'
 
 /** 一条消息在 UI 上的状态 */
 export type MessageStatus =
@@ -73,7 +74,8 @@ export interface ChatSession {
   patchMessage: (id: string, patch: Partial<ChatMessage>) => void
   truncateFrom: (messageId: string) => void
   setBusy: (busy: boolean) => void
-  addUsage?: (input: number, output: number) => void
+  /** 一轮结束时累加 token 用量。第 33 章起带上缓存读 / 写（以前只有输入、输出） */
+  addUsage?: (usage: UsageTotals) => void
 }
 
 export function toWire(messages: ChatMessage[]): WireMessage[] {

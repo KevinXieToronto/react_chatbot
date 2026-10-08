@@ -1,4 +1,14 @@
-import { getClient, MODEL } from './openai.js'
+import { getClient, MODEL, toUsage } from './openai.js'
+import { buildRequest } from './context.js'
+import { fitContext } from './contextManager.js'
+
+/** 把一轮的 usage 累加进总数。缓存读和普通输入分开记，因为它们的价格不一样 */
+function addUsage(total, usage) {
+  total.input_tokens += usage.input_tokens
+  total.output_tokens += usage.output_tokens
+  total.cache_read_input_tokens += usage.cache_read_input_tokens
+  total.cache_creation_input_tokens += usage.cache_creation_input_tokens
+}
 
 /**
  * 跑完整的 tool use 循环。
@@ -7,26 +17,31 @@ import { getClient, MODEL } from './openai.js'
  * 执行工具统一交给 callTool（它负责发 tool_start / tool_end / invalidate 事件）。
  * 这样同一个循环既能跑任务助手，也能跑代码助手。
  *
+ * 第 33 章加了两件事，都在"调用模型之前"：
+ *   ① fitContext：超预算时截断旧工具结果、删掉最旧的消息并生成摘要，然后发 context 事件
+ *   ② buildRequest：在一份副本上拼出请求（system 放最前面），conversation 本身不放 system
+ * 另外 usage 从两种 token 扩展成四种，分别累加（缓存读的价格不一样）。
+ *
  * @param {Array} messages 对话历史（只有 role/content）
  * @param {object} profile { system, tools, parallelTools, maxTurns }
- * @param {object} handlers { onText, callTool }
+ * @param {object} handlers { onText, callTool, onContext }
  * @param {AbortSignal} signal
+ * @param {{ client?, summarize? }} options client 默认是真实的 OpenAI 客户端；Mock 时传脚本化的假客户端
  */
-export async function runAgentLoop(messages, profile, handlers, signal) {
-  const client = getClient()
+export async function runAgentLoop(messages, profile, handlers, signal, options = {}) {
+  const client = options.client ?? getClient()
 
   // 这个数组会随着循环不断增长：assistant 的 tool_calls、role 为 tool 的工具结果。
-  // OpenAI 的系统提示词是第一条 system 消息
-  const conversation = [
-    { role: 'system', content: profile.system },
-    ...messages.map((m) => ({ role: m.role, content: m.content })),
-  ]
-
-  // profile 里的工具定义是教程（Claude）的格式，这里统一转成 OpenAI 的格式
-  const tools = toOpenAITools(profile.tools)
+  // ⚠️ 第 33 章起 system 不放进来：每次请求时由 buildRequest 拼到最前面，上下文管理碰不到它
+  let conversation = messages.map((m) => ({ role: m.role, content: m.content }))
 
   // 用量要【累加】：每一轮都是一次独立的 API 调用、各自计费（第 26 章）
-  const usage = { input_tokens: 0, output_tokens: 0 }
+  const usage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+  }
 
   // 之前的轮次有没有输出过文字（用来在两轮文字之间补空行）
   let hasText = false
@@ -34,21 +49,32 @@ export async function runAgentLoop(messages, profile, handlers, signal) {
   for (let turn = 0; turn < profile.maxTurns; turn++) {
     if (signal?.aborted) return { stopReason: 'aborted', usage }
 
+    // ① 上下文管理。整理后的结果直接替换 conversation：
+    //    删掉的消息不会再回来，下一轮就不用再删一遍、再摘要一遍；
+    //    前缀也因此稳定下来，提示缓存才能继续命中
+    const fitted = await fitContext(conversation, profile, {
+      client,
+      summarize: options.summarize,
+    })
+    conversation = fitted.messages
+    handlers.onContext?.(fitted.report)
+
+    // ② 拼请求：在一份【副本】上加 system、转换工具格式，不污染 conversation
+    const params = buildRequest({
+      model: MODEL,
+      max_completion_tokens: 16000,
+      stream: true,
+      stream_options: { include_usage: true },
+      // ⚠️ gpt-5.6-luna 在 /v1/chat/completions 里不能同时用推理和函数工具，
+      //    不关掉推理会直接 400（要保留推理，得改用 /v1/responses 接口）
+      reasoning_effort: 'none',
+      system: profile.system,
+      tools: profile.tools,
+      messages: conversation,
+    })
+
     // 用户中止时同时取消对模型的请求：直接把 signal 交给 SDK
-    const stream = await client.chat.completions.create(
-      {
-        model: MODEL,
-        max_completion_tokens: 16000,
-        stream: true,
-        stream_options: { include_usage: true },
-        // ⚠️ gpt-5.6-luna 在 /v1/chat/completions 里不能同时用推理和函数工具，
-        //    不关掉推理会直接 400（要保留推理，得改用 /v1/responses 接口）
-        reasoning_effort: 'none',
-        tools,
-        messages: conversation,
-      },
-      { signal },
-    )
+    const stream = await client.chat.completions.create(params, { signal })
 
     let text = ''
     let finishReason = null
@@ -61,10 +87,7 @@ export async function runAgentLoop(messages, profile, handlers, signal) {
     let turnHasText = false
 
     for await (const chunk of stream) {
-      if (chunk.usage) {
-        usage.input_tokens += chunk.usage.prompt_tokens ?? 0
-        usage.output_tokens += chunk.usage.completion_tokens ?? 0
-      }
+      if (chunk.usage) addUsage(usage, toUsage(chunk.usage))
       const choice = chunk.choices[0]
       if (!choice) continue
 
@@ -167,16 +190,4 @@ export async function runAgentLoop(messages, profile, handlers, signal) {
 function toResultContent(result) {
   if (!result.ok) return JSON.stringify({ error: result.error })
   return typeof result.data === 'string' ? result.data : JSON.stringify(result.data)
-}
-
-/**
- * 教程（Claude）格式 { name, description, input_schema }
- * → OpenAI 格式 { type: 'function', function: { name, description, parameters } }。
- * JSON Schema 本身完全一样，所以 tools.js / codeTools.js 不用改。
- */
-function toOpenAITools(defs) {
-  return defs.map((t) => ({
-    type: 'function',
-    function: { name: t.name, description: t.description, parameters: t.input_schema },
-  }))
 }

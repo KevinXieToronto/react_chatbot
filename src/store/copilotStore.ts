@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { PersistStorage, StorageValue } from 'zustand/middleware'
 import type { ChatMessage } from '../types/chat'
+import type { UsageTotals } from '../lib/tokenCost'
 
 export interface Conversation {
   id: string
@@ -9,8 +10,11 @@ export interface Conversation {
   messages: ChatMessage[]
   createdAt: string
   updatedAt: string
-  /** 累计 token 用量 */
-  usage: { input: number; output: number }
+  /**
+   * 累计 token 用量。第 33 章加了 cacheRead / cacheWrite：
+   * 老版本存下来的数据里没有这两个字段，所以是可选的，读的时候按 0 算（不用升级 version 做迁移）
+   */
+  usage: UsageTotals
 }
 
 interface CopilotState {
@@ -38,7 +42,7 @@ interface CopilotActions {
   patchMessage: (id: string, patch: Partial<ChatMessage>) => void
   /** 删掉某条消息及其之后的所有消息（重试时用） */
   truncateFrom: (messageId: string) => void
-  addUsage: (input: number, output: number) => void
+  addUsage: (usage: UsageTotals) => void
 
   markChanged: (taskId: string) => void
   clearChanged: () => void
@@ -245,11 +249,19 @@ export const useCopilotStore = create<CopilotState & CopilotActions>()(
           }),
         })),
 
-      addUsage: (input, output) =>
+      addUsage: (u) =>
         set((s) => ({
           conversations: s.conversations.map((c) =>
             c.id === s.activeId
-              ? { ...c, usage: { input: c.usage.input + input, output: c.usage.output + output } }
+              ? {
+                  ...c,
+                  usage: {
+                    input: c.usage.input + u.input,
+                    output: c.usage.output + u.output,
+                    cacheRead: (c.usage.cacheRead ?? 0) + (u.cacheRead ?? 0),
+                    cacheWrite: (c.usage.cacheWrite ?? 0) + (u.cacheWrite ?? 0),
+                  },
+                }
               : c,
           ),
         })),

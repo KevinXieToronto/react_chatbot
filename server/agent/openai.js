@@ -19,6 +19,23 @@ export function getClient() {
 /** 模型名放在 server/.env 的 OPENAI_MODEL 里，换模型不用改代码 */
 export const MODEL = process.env.OPENAI_MODEL ?? 'gpt-5.6-luna'
 
+/**
+ * OpenAI 的 usage → 前端认的四种 token（第 33 章，形状沿用教程）。
+ *
+ * - prompt_tokens 是【全部】输入，其中 prompt_tokens_details.cached_tokens 是从缓存读的；
+ *   减掉之后才是"按全价算的那部分"，所以 总输入 = input_tokens + cache_read_input_tokens；
+ * - OpenAI 写缓存不额外收费、也不单独报数，cache_creation_input_tokens 永远是 0。
+ */
+export function toUsage(u) {
+  const cached = u?.prompt_tokens_details?.cached_tokens ?? 0
+  return {
+    input_tokens: (u?.prompt_tokens ?? 0) - cached,
+    output_tokens: u?.completion_tokens ?? 0,
+    cache_read_input_tokens: cached,
+    cache_creation_input_tokens: 0,
+  }
+}
+
 export const SYSTEM_PROMPT = `你是 TaskFlow 的任务助手 Copilot。
 
 你可以帮用户管理他们的任务清单。回答要简洁、直接，用中文。

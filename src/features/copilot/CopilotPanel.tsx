@@ -7,6 +7,7 @@ import MessageList from './MessageList'
 import QuickActions from './QuickActions'
 import SessionList from './SessionList'
 import UsageBar from './UsageBar'
+import ContextMeter from './ContextMeter'
 import ChatComposer from './ChatComposer'
 import StopBar from './StopBar'
 
@@ -40,7 +41,7 @@ export default function CopilotPanel() {
   }
 
   const syncTasks = useTaskSync()
-  const { send, stop, retry, phaseText } = useChat(session, {
+  const { send, stop, retry, phaseText, context, usage } = useChat(session, {
     mode: 'tasks',
     onInvalidate: (evt) => {
       if (evt.resource === 'tasks') syncTasks(evt.op, evt.task)
@@ -105,6 +106,8 @@ export default function CopilotPanel() {
             <QuickActions onPick={(text) => void send(text)} disabled={busy} />
           )}
 
+          {/* 第 33 章：这一轮的上下文大小和缓存命中；下面的 UsageBar 是整个会话的累计 */}
+          <ContextMeter context={context} usage={usage} />
           <UsageBar />
 
           {busy && <StopBar text={phaseText} onStop={stop} />}

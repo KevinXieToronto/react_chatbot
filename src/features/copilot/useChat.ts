@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { streamChat, submitApproval } from '../../api/chatApi'
-import type { InvalidateEvent, ToolOutputEvent } from '../../api/chatApi'
+import type { ContextReport, InvalidateEvent, TokenUsage, ToolOutputEvent } from '../../api/chatApi'
 import { useStreamBuffer } from '../../hooks/useStreamBuffer'
 import { createMessage } from '../../store/copilotStore'
 import { toWire } from '../../types/chat'
@@ -50,6 +50,10 @@ export function useChat(
 
   // 当前这一轮的阶段，用来驱动界面上的提示和审批卡片
   const [turn, dispatch] = useReducer(turnReducer, initialTurnState)
+
+  // 第 33 章：上下文条要显示的两样东西。它们只是"最近一次"的快照，不存进消息，也不持久化
+  const [context, setContext] = useState<ContextReport | null>(null)
+  const [lastUsage, setLastUsage] = useState<TokenUsage | null>(null)
 
   const activeIdRef = useRef<string | null>(null)
   // 当前请求的 apply（见 send）。decide 在本地收起过期的审批卡片时也要走它，
@@ -235,13 +239,31 @@ export function useChat(
               onToolOutputRef.current?.(evt)
               break
 
+            case 'context':
+              setContext({
+                tokens: evt.tokens,
+                before: evt.before,
+                budget: evt.budget,
+                exact: evt.exact,
+                truncated: evt.truncated,
+                dropped: evt.dropped,
+                summarized: evt.summarized,
+              })
+              break
+
             case 'done':
               settled = true
               flush()
               apply({ type: 'done' })
               patchMessage(assistantMessage.id, { status: 'complete' })
               if (evt.usage) {
-                addUsage?.(evt.usage.input_tokens ?? 0, evt.usage.output_tokens ?? 0)
+                setLastUsage(evt.usage)
+                addUsage?.({
+                  input: evt.usage.input_tokens ?? 0,
+                  output: evt.usage.output_tokens ?? 0,
+                  cacheRead: evt.usage.cache_read_input_tokens ?? 0,
+                  cacheWrite: evt.usage.cache_creation_input_tokens ?? 0,
+                })
               }
               break
 
@@ -325,5 +347,9 @@ export function useChat(
     turn,
     approval: turn.approval,
     phaseText: describePhase(turn),
+    /** 最近一次调用模型前的上下文情况（第 33 章） */
+    context,
+    /** 上一轮结束时的 token 用量（第 33 章） */
+    usage: lastUsage,
   }
 }

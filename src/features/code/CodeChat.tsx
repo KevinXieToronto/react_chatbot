@@ -5,6 +5,7 @@ import MessageList from '../copilot/MessageList'
 import ChatComposer from '../copilot/ChatComposer'
 import StopBar from '../copilot/StopBar'
 import ApprovalCard from '../copilot/ApprovalCard'
+import ContextMeter from '../copilot/ContextMeter'
 import { useFileSync } from './useFileSync'
 import { useTerminalSync } from './useTerminalSync'
 import { clearOutputs } from './terminalBuffer'
@@ -14,6 +15,7 @@ const SUGGESTIONS = [
   '跑一下测试',
   '跑一下构建',
   '启动开发服务器',
+  '把所有文件都读一遍',
   '帮我修复 bug',
   '新建文件 src/clamp.js',
   '用命令看看 ../server/.env',
@@ -39,7 +41,7 @@ export default function CodeChat() {
 
   const syncFiles = useFileSync()
   const syncTerminal = useTerminalSync()
-  const { send, stop, retry, decide, approval, phaseText } = useChat(session, {
+  const { send, stop, retry, decide, approval, phaseText, context, usage } = useChat(session, {
     mode: 'code',
     onInvalidate: syncFiles,
     // 第 32 章：命令的实时输出直接进终端，不经过消息状态
@@ -96,6 +98,9 @@ export default function CodeChat() {
           ))}
         </div>
       )}
+
+      {/* 第 33 章：上下文条。代码助手的工具结果（读文件、跑命令）是上下文增长的大头 */}
+      <ContextMeter context={context} usage={usage} />
 
       {busy && <StopBar text={phaseText} onStop={stop} />}
 

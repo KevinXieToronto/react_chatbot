@@ -1,6 +1,10 @@
 import { Router } from 'express'
-import { isMock } from '../agent/openai.js'
+import { isMock, getClient, toUsage } from '../agent/openai.js'
 import { runAgentLoop } from '../agent/loop.js'
+import { buildRequest } from '../agent/context.js'
+import { fitContext, createSummarizer, mockSummarize } from '../agent/contextManager.js'
+import { simulateUsage } from '../agent/cacheSimulator.js'
+import { createScriptedClient } from '../agent/scriptedClient.js'
 import { getProfile } from '../agent/profiles.js'
 import { createToolRunner } from '../agent/toolRunner.js'
 import { openStream, sleep, sse } from '../agent/stream.js'
@@ -10,8 +14,10 @@ import { resolveApproval, listPendingApprovals } from '../agent/approvals.js'
 
 export const chatRouter = Router()
 
-const MAX_MESSAGES = 60
-const MAX_CHARS = 20_000
+// 第 33 章起，真正的长度控制交给上下文管理（按 token 预算截断、摘要）。
+// 这两个上限只是防滥用的"安全阀"：挡住明显不正常的请求体。
+const MAX_MESSAGES = 200
+const MAX_CHARS = 200_000
 
 /** 把各种异常映射成前端能理解的分类 */
 function classifyError(err) {
@@ -52,12 +58,12 @@ chatRouter.post('/', rateLimit({ windowMs: 60_000, max: 20 }), async (req, res) 
     return res.status(400).json({ kind: 'input', message: `不支持的模式：${mode}` })
   }
 
-  // role 只能是 user / assistant，content 必须是字符串，最后一条是用户消息（第 21 章）
+  // role 只能是 user / assistant，content 必须是字符串，最后一条是用户消息（第 21 章）。
+  // 只收纯文本这一条在本章更要紧：工具调用、工具结果只能由服务端自己产生，
+  // 否则客户端可以伪造一段"模型调过工具、工具返回了 xxx"的历史，上下文管理也会被它搅乱
   const invalid = validateMessages(messages)
   if (invalid) return res.status(400).json({ kind: 'input', message: invalid })
 
-  // 防止超长上下文把 token 烧光。
-  // 真实项目应该做智能截断或摘要，这里先简单拒绝。
   if (messages.length > MAX_MESSAGES) {
     return res.status(400).json({
       kind: 'input',
@@ -90,28 +96,48 @@ chatRouter.post('/', rateLimit({ windowMs: 60_000, max: 20 }), async (req, res) 
     delayMs: isMock() ? 500 : 0,
   })
 
+  const history = messages.map((m) => ({ role: m.role, content: m.content }))
+  const lastUser = [...history].reverse().find((m) => m.role === 'user')
+
+  // 三种跑法：
+  //   真实模式 —— 真的 OpenAI + 真实循环
+  //   Mock + 有剧本 —— 脚本化的假模型 + 真实循环（第 33 章，能看到上下文管理和缓存）
+  //   Mock + 没剧本 —— 老的 Mock：剧本自己调工具，不经过循环
+  const script = isMock() ? profile.mockScript?.(lastUser?.content) : null
+
   try {
-    if (isMock()) {
-      const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    if (isMock() && !script) {
+      // 老的 Mock 不经过循环，这里手动做一遍上下文整理，让上下文条也有数字可看
+      const fitted = await fitContext(history, profile, { client: null, summarize: mockSummarize })
+      sse(res, 'context', fitted.report)
+
       await sleep(250)
-      const finished = await profile.mock(
-        { res, signal: abort.signal, callTool },
-        lastUser?.content,
-      )
+      const finished = await profile.mock({ res, signal: abort.signal, callTool }, lastUser?.content)
       if (finished && !abort.signal.aborted) {
-        sse(res, 'done', { stopReason: 'end_turn' })
+        // 和真实请求一样拼好参数，交给模拟器算一个"差不多"的缓存用量
+        const params = buildRequest({
+          system: profile.system,
+          tools: profile.tools,
+          messages: fitted.messages,
+        })
+        const usage = toUsage(simulateUsage(params, res.locals.mockOutput))
+        sse(res, 'done', { stopReason: 'end_turn', usage })
       }
       return res.end()
     }
 
+    const client = script ? createScriptedClient(script) : getClient()
     const result = await runAgentLoop(
-      messages,
+      history,
       profile,
       {
         onText: (delta) => sse(res, 'delta', { text: delta }),
         callTool,
+        // 每次调用模型之前，把上下文的大小和整理情况推给前端
+        onContext: (report) => sse(res, 'context', report),
       },
       abort.signal,
+      { client, summarize: script ? mockSummarize : createSummarizer(client) },
     )
 
     if (abort.signal.aborted) return res.end()

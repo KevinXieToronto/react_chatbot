@@ -3,6 +3,7 @@ import { toolDefinitions, runTool, isMutatingTool } from './tools.js'
 import { codeToolDefinitions, runCodeTool, previewCodeChange } from './codeTools.js'
 import { mockTaskAgent } from './mockTaskAgent.js'
 import { mockCodeAgent } from './mockCodeAgent.js'
+import { codeMockScript } from './mockScripts.js'
 
 export const CODE_SYSTEM_PROMPT = `你是 TaskFlow 的代码助手，在一个受限的工作区里帮用户阅读和修改代码。回答用中文，简洁直接。
 
@@ -16,6 +17,7 @@ export const CODE_SYSTEM_PROMPT = `你是 TaskFlow 的代码助手，在一个�
 
 /**
  * 一个"模式"（profile）= 一套系统提示词 + 一套工具 + 一个 Mock 实现。
+ * 第 33 章起还可以有 mockScript：给"脚本化假模型"用的剧本，走真实的 Agent 循环。
  *
  * 前端在请求体里带 mode，服务端只从这张白名单表里挑，
  * 客户端没法塞进来任何自定义的工具或提示词。
@@ -48,6 +50,7 @@ const PROFILES = {
     // 读 → 改 → 再读确认，编码任务需要的轮数比任务管理多
     maxTurns: 20,
     mock: mockCodeAgent,
+    mockScript: codeMockScript,
   },
 }
 

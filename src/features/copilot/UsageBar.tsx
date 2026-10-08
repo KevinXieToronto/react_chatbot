@@ -1,26 +1,27 @@
 import { useActiveConversation } from '../../store/copilotStore'
+import { estimateCost } from '../../lib/tokenCost'
 
 /**
- * 每百万 token 的价格（美元）。
- * ⚠️ 这里是占位值（教程里 claude-opus-5 的价格）。我们用的是 OpenAI 的模型（server/.env 的 OPENAI_MODEL），
- *    请按 OpenAI 官网的定价页把 input / output 改成那个模型的真实价格。
- * 数字会变，正式产品应该从后端配置读（和 MODEL 放在一起），这里写死只为演示。
+ * 当前会话累计用了多少 token、大概花了多少钱（第 28 章）。
+ *
+ * 第 33 章：价格挪到了 lib/tokenCost.ts，并把缓存读 / 写也算进去。
+ * 以前只累加 input_tokens —— 用上提示缓存以后，它只是"没命中缓存的那部分"，
+ * 不加上缓存的两项，显示的输入量和费用都会偏少。
  */
-const PRICE_PER_MTOK = { input: 5, output: 25 }
-
 export default function UsageBar() {
   const conv = useActiveConversation()
   if (!conv) return null
 
-  const { input, output } = conv.usage
-  if (input === 0 && output === 0) return null
+  const { input, output, cacheRead = 0, cacheWrite = 0 } = conv.usage
+  if (input + output + cacheRead + cacheWrite === 0) return null
 
-  const cost = (input / 1e6) * PRICE_PER_MTOK.input + (output / 1e6) * PRICE_PER_MTOK.output
+  const cost = estimateCost(conv.usage)
 
   return (
     <div className="flex items-center justify-between px-3 py-1 text-[11px] text-slate-400">
       <span>
-        输入 {input.toLocaleString()} · 输出 {output.toLocaleString()} tokens
+        本会话：输入 {(input + cacheRead + cacheWrite).toLocaleString()}（缓存读 {cacheRead.toLocaleString()}）·
+        输出 {output.toLocaleString()}
       </span>
       <span title="按当前定价估算，仅供参考">≈ ${cost.toFixed(4)}</span>
     </div>

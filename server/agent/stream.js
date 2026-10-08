@@ -36,6 +36,8 @@ export async function typeOut(res, text, signal) {
     if (signal.aborted || res.writableEnded || res.destroyed) return false
     const size = 1 + Math.floor(Math.random() * 3)
     sse(res, 'delta', { text: text.slice(i, i + size) })
+    // 第 33 章：记下一共"说"了多少字，路由用它估算 Mock 的 output_tokens
+    res.locals.mockOutput = (res.locals.mockOutput ?? '') + text.slice(i, i + size)
     i += size
     await sleep(22)
   }
