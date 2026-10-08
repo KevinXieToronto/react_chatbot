@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, cleanup } from 'ink-testing-library'
 import { App } from './App'
 import type { ChatStreamEvent, StreamChat } from '@taskflow/agent-core'
-import { createStreamChat } from './api'
+import { createCliClient } from './api'
+import { KEY_GUARD_MS } from './components/ApprovalPrompt'
 
 /** 每个测试一个临时的历史文件，不碰你主目录里真正的历史 */
 function tempHistory(entries: string[] = []): string {
@@ -233,13 +234,107 @@ describe('输入与命令（第 38 章）', () => {
   })
 })
 
+describe('审批（第 39 章）', () => {
+  const preview = {
+    path: 'src/math.js',
+    isNew: false,
+    additions: 1,
+    deletions: 1,
+    tooLarge: false,
+    hunks: [{ oldStart: 3, oldLines: 1, newStart: 3, newLines: 1, lines: ['-  for (let i = 1;', '+  for (let i = 0;'] }],
+  }
+
+  /** 一个会停下来等审批的假后端：submitApproval 被调用后才继续 */
+  function approvalScenario() {
+    const calls: [string, string, string | undefined][] = []
+    let release: (decision: string) => void = () => {}
+    const decided = new Promise<string>((resolve) => {
+      release = resolve
+    })
+    const submitApproval = vi.fn(async (id: string, decision: 'allow' | 'deny', note?: string) => {
+      calls.push([id, decision, note])
+      release(decision)
+    })
+    const stream: StreamChat = async function* (_messages, { signal }) {
+      yield { type: 'tool_start', id: 't1', name: 'edit_file', input: { path: 'src/math.js' } }
+      yield {
+        type: 'approval_required',
+        approvalId: 'a1',
+        toolUseId: 't1',
+        name: 'edit_file',
+        input: {},
+        reason: '会修改文件 src/math.js',
+        timeoutMs: 120_000,
+        preview,
+      }
+      // 等用户决定；用户按了 Esc 的话，signal 会中止
+      const decision = await Promise.race([
+        decided,
+        new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason))),
+      ])
+      // 真正的 fetch 被中止后，后面的数据就读不到了
+      if (signal.aborted) throw signal.reason
+      yield { type: 'approval_resolved', approvalId: 'a1', toolUseId: 't1', decision: decision === 'allow' ? 'allow' : 'deny', by: 'user' }
+      yield { type: 'tool_end', id: 't1', ok: decision === 'allow', summary: decision === 'allow' ? '已修改 src/math.js' : '已拒绝' }
+      yield { type: 'delta', text: decision === 'allow' ? '改好了。' : '好的，不改了。' }
+      yield { type: 'done', stopReason: 'end_turn' }
+    }
+    return { stream, submitApproval, calls }
+  }
+
+  it('弹出审批提示和 diff；按 y 回传 allow；完成后历史里留着 diff', async () => {
+    const { stream, submitApproval, calls } = approvalScenario()
+    const { stdin, lastFrame } = renderApp({ stream, submitApproval })
+    await typeAndSubmit(stdin, '帮我修复 bug')
+
+    await vi.waitFor(() => expect(lastFrame()).toContain('⚠ 需要你确认 · 修改文件'))
+    expect(lastFrame()).toContain('3   -   for (let i = 1;')
+    expect(lastFrame()).toContain('  3 +   for (let i = 0;')
+
+    await sleep(KEY_GUARD_MS + 200) // 提示出现后的按键保护期，多留一点余量
+    stdin.write('y')
+    await vi.waitFor(() => expect(lastFrame()).toContain('就绪 · 2 条消息'), { timeout: 3000 })
+    expect(calls).toEqual([['a1', 'allow', '']])
+    expect(lastFrame()).toContain('⏺ 修改文件 (edit_file) ✓ 已修改 src/math.js')
+    expect(lastFrame()).toContain('src/math.js +1 −1')
+    expect(lastFrame()).toContain('改好了。')
+    expect(lastFrame()).not.toContain('需要你确认')
+  })
+
+  it('等审批时按 Esc：先回传拒绝，再中止这一轮', async () => {
+    const { stream, submitApproval, calls } = approvalScenario()
+    const { stdin, lastFrame } = renderApp({ stream, submitApproval })
+    await typeAndSubmit(stdin, '帮我修复 bug')
+
+    await vi.waitFor(() => expect(lastFrame()).toContain('需要你确认'))
+    stdin.write('\u001B')
+    await vi.waitFor(() => expect(lastFrame()).toContain('（已中止）'))
+    expect(calls).toEqual([['a1', 'deny', '用户中止了这一轮']])
+    expect(lastFrame()).toContain('✗ 已取消')
+  })
+
+  it('Shift+Tab 切到"自动接受编辑"：不弹提示，自动允许，并留一行记录', async () => {
+    const { stream, submitApproval, calls } = approvalScenario()
+    const { stdin, lastFrame, frames } = renderApp({ stream, submitApproval })
+    await sleep(50)
+    stdin.write('\u001B[Z') // Shift+Tab
+    await vi.waitFor(() => expect(lastFrame()).toContain('[自动接受编辑]'))
+
+    await typeAndSubmit(stdin, '帮我修复 bug')
+    await vi.waitFor(() => expect(lastFrame()).toContain('就绪 · 2 条消息'))
+    expect(calls).toEqual([['a1', 'allow', '']])
+    expect(lastFrame()).toContain('↳ 自动接受编辑模式，已自动允许：会修改文件 src/math.js')
+    expect(frames.some((f) => f.includes('需要你确认'))).toBe(false)
+  })
+})
+
 describe('streamChat', () => {
   it('后端没启动时给出友好提示，而不是抛异常', async () => {
     // 3999 端口上没有服务在监听，连接会被拒绝（ECONNREFUSED）
     const url = 'http://127.0.0.1:3999'
     const signal = new AbortController().signal
     const events: ChatStreamEvent[] = []
-    for await (const e of createStreamChat(url)([{ role: 'user', content: 'hi' }], { signal })) {
+    for await (const e of createCliClient(url).streamChat([{ role: 'user', content: 'hi' }], { signal })) {
       events.push(e)
     }
     expect(events).toEqual([

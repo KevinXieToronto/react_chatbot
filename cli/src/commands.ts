@@ -5,6 +5,7 @@ import {
   type ContextReport,
   type UsageTotals,
 } from '@taskflow/agent-core'
+import { PERMISSION_HELP, PERMISSION_LABELS, PERMISSION_MODES, type PermissionMode } from './permissions'
 
 /** 三种模式（第 29、34 章），服务端的 profiles.js 里是同一张白名单 */
 export const MODES: Record<ChatMode, string> = {
@@ -15,14 +16,23 @@ export const MODES: Record<ChatMode, string> = {
 
 export const isMode = (s: string): s is ChatMode => Object.hasOwn(MODES, s)
 
+/** /permissions 的参数写法 → 权限模式（第 39 章） */
+const PERMISSION_ARGS: Record<string, PermissionMode> = {
+  default: 'default',
+  'accept-edits': 'acceptEdits',
+  plan: 'plan',
+}
+
 /** 命令能用到的"外部能力"。命令本身不直接碰 React 状态，全部通过这个对象 */
 export interface CommandContext {
   mode: ChatMode
   setMode: (mode: ChatMode) => void
   /** 清屏，对话保留 */
   clearScreen: () => void
-  /** 新会话：清空对话、用量，并清屏 */
+  /** 新会话：清空对话、用量、"总是允许"的工具，并清屏 */
   newSession: () => void
+  permissionMode: PermissionMode
+  setPermissionMode: (mode: PermissionMode) => void
   exit: () => void
   /** 在对话里印一段提示（不会发给模型） */
   print: (text: string, tone?: 'info' | 'warn' | 'error') => void
@@ -54,6 +64,7 @@ export const COMMANDS: SlashCommand[] = [
           '快捷键：',
           '  Enter 发送 · \\ + Enter 或 Ctrl+J 换行 · ↑/↓ 翻历史 · Tab 补全命令',
           '  Esc 清空输入 / 中止回复 · Ctrl+L 清屏 · Ctrl+C 中止回复 / 退出',
+          '  Shift+Tab 切换权限模式（默认 → 自动接受编辑 → 只读计划）',
         ].join('\n'),
       ),
   },
@@ -76,13 +87,36 @@ export const COMMANDS: SlashCommand[] = [
     },
   },
   {
+    name: 'permissions',
+    args: 'default|accept-edits|plan',
+    description: '切换权限模式（不带参数时显示当前模式）',
+    run: (ctx, args) => {
+      const arg = args.trim()
+      if (!arg) {
+        ctx.print(
+          PERMISSION_MODES.map(
+            (m) => `${m === ctx.permissionMode ? '●' : '○'} ${PERMISSION_LABELS[m]}：${PERMISSION_HELP[m]}`,
+          ).join('\n') + '\n不管哪种模式，要不要问人都由服务端决定；这里只决定"服务端问了以后，要不要替你自动回答"。',
+        )
+        return
+      }
+      const next = PERMISSION_ARGS[arg]
+      if (!next) {
+        ctx.print(`没有 ${arg} 这个权限模式，可选：${Object.keys(PERMISSION_ARGS).join(' / ')}`, 'error')
+        return
+      }
+      ctx.setPermissionMode(next)
+      ctx.print(`权限模式：${PERMISSION_LABELS[next]}（${PERMISSION_HELP[next]}）`)
+    },
+  },
+  {
     name: 'clear',
     description: '清屏（对话上下文保留）',
     run: (ctx) => ctx.clearScreen(),
   },
   {
     name: 'new',
-    description: '开始新会话（清空对话和用量统计）',
+    description: '开始新会话（清空对话、用量统计和"总是允许"）',
     run: (ctx) => ctx.newSession(),
   },
   {

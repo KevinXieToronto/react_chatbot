@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink'
 import { TOOL_LABELS, type ToolCall } from '@taskflow/agent-core'
 import { tailLines } from '../outputTail'
+import { DiffView } from './DiffView'
 
 /** 命令运行时，下面最多显示几行实时输出 */
 const OUTPUT_LINES = 5
@@ -14,6 +15,7 @@ interface Props {
 /**
  * 一次工具调用 = 一行：⏺ 查询任务 … ✓ 找到 2 条任务
  * 命令还在跑的时候，下面用 ⎿ 显示最后几行输出；跑完只留一句 summary。
+ * 改文件的工具成功后，下面附上 diff（第 39 章）：审批提示一关掉就看不到了，历史里要留一份。
  */
 export function ToolLine({ call, output }: Props) {
   const label = TOOL_LABELS[call.name] ?? call.name
@@ -37,6 +39,11 @@ export function ToolLine({ call, output }: Props) {
         {call.status === 'success' && <Text color="green"> ✓ {call.summary}</Text>}
         {call.status === 'error' && <Text color="red"> ✗ {call.summary}</Text>}
       </Text>
+      {call.status === 'success' && call.preview && (
+        <Box paddingLeft={2}>
+          <DiffView preview={call.preview} maxRows={20} />
+        </Box>
+      )}
       {lines.map((line, i) => (
         // truncate-end：长行截断而不是折行，动态区的高度才稳定
         <Text key={i} dimColor wrap="truncate-end">

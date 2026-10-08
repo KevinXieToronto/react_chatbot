@@ -1,5 +1,11 @@
-import { render } from 'ink'
-import { App } from './App'
+// NO_COLOR（https://no-color.org）是"请不要输出颜色"的通行约定。
+// 但 Ink 用的 chalk 不认它，只认 FORCE_COLOR=0；而且 chalk 在第一次被 import 时就决定了用不用颜色。
+// 所以要在加载 Ink 之前把它翻译过去 —— 这也是下面用 await import() 而不是顶部 import 的原因：
+// 顶部的 import 会先于这几行执行（打包之后也一样）。
+if (process.env.NO_COLOR) process.env.FORCE_COLOR = '0'
+
+const { render } = await import('ink')
+const { App } = await import('./App')
 
 // Ink 要把终端切到 raw mode 才能逐键读输入。
 // 用管道喂输入（echo hi | npm run dev）时 stdin 不是终端，直接给出提示

@@ -1,4 +1,10 @@
-import { ConnectionError, createAgentClient, type StreamChat } from '@taskflow/agent-core'
+import {
+  ConnectionError,
+  UnauthorizedError,
+  createAgentClient,
+  type AgentClient,
+  type StreamChat,
+} from '@taskflow/agent-core'
 import { TOKEN_HEADER, UNAUTHORIZED_MESSAGE, resolveToken } from './token'
 
 // 第 36 章：SSE 解析、事件类型、流式请求都来自共享核心。
@@ -12,14 +18,14 @@ export const API_URL = process.env.TASKFLOW_API_URL ?? 'http://localhost:3001'
 export const TOKEN = resolveToken()
 
 /**
- * 基于核心客户端，造一个终端用的流式函数。
- * 和网页端的区别：令牌由这里放进请求头；连不上后端、401 时不抛异常，
- * 而是产出一条"该怎么办"的 error 事件。
+ * 基于核心客户端，造一个终端用的客户端（第 39 章起还要回传审批，所以返回整个 client）。
+ * 和网页端的区别：令牌由这里放进请求头（流式对话和审批回传都带）；
+ * 连不上后端、401 时不抛异常（审批回传的 401 抛带提示的 Error），而是给出"该怎么办"的提示。
  */
-export function createStreamChat(baseUrl: string, token?: string): StreamChat {
+export function createCliClient(baseUrl: string, token?: string): AgentClient {
   const client = createAgentClient({ baseUrl, headers: token ? { [TOKEN_HEADER]: token } : {} })
 
-  return async function* (messages, options) {
+  const streamChat: StreamChat = async function* (messages, options) {
     try {
       for await (const event of client.streamChat(messages, options)) {
         if (event.type === 'error' && event.kind === 'unauthorized') {
@@ -40,6 +46,17 @@ export function createStreamChat(baseUrl: string, token?: string): StreamChat {
       throw err
     }
   }
+
+  const submitApproval: AgentClient['submitApproval'] = async (approvalId, decision, note) => {
+    try {
+      await client.submitApproval(approvalId, decision, note)
+    } catch (err) {
+      if (err instanceof UnauthorizedError) throw new Error(UNAUTHORIZED_MESSAGE, { cause: err })
+      throw err
+    }
+  }
+
+  return { streamChat, submitApproval }
 }
 
-export const streamChat = createStreamChat(API_URL, TOKEN)
+export const cliClient = createCliClient(API_URL, TOKEN)

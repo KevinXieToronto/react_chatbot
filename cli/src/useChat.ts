@@ -2,19 +2,24 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // 第 36 章：状态机、消息类型、isAbortError 都来自共享核心 —— 和网页端跑的是同一份代码
 import {
   isAbortError,
+  toPendingApproval,
   toWire,
   turnReducer,
   initialTurnState,
+  type ApprovalDecision,
   type ChatMessage,
   type ChatMode,
   type ContextReport,
+  type PendingApproval,
   type StreamChat,
+  type SubmitApproval,
   type TurnAction,
   type TurnState,
   type UsageTotals,
 } from '@taskflow/agent-core'
-import { streamChat as defaultStreamChat } from './api'
+import { cliClient } from './api'
 import { appendOutput } from './outputTail'
+import type { AutoDecision } from './permissions'
 import { addText, addTool, settle, type Entry, type Segment } from './transcript'
 
 /** 攒多久提交一次文本。40ms ≈ 25 次/秒，肉眼看是连续的 */
@@ -22,9 +27,14 @@ const FLUSH_MS = 40
 
 interface Options {
   stream?: StreamChat
+  /** 回传审批结果（第 39 章）。测试时换成假的 */
+  submitApproval?: SubmitApproval
+  /** 空闲超时：连续这么久没收到任何事件就放弃。等人审批的时候不计时 */
   timeoutMs?: number
   /** 对话模式（第 38 章），随请求发给后端 */
   mode?: ChatMode
+  /** 服务端要求审批时，要不要替用户自动回答（第 39 章的权限模式）。返回 null = 弹出来问 */
+  autoDecide?: (approval: PendingApproval) => AutoDecision | null
 }
 
 /** 动态区要画的东西：还没定稿的段落，从第 cursor 段开始 */
@@ -87,7 +97,13 @@ function finalize(turn: LiveTurn, timedOut: boolean): ChatMessage {
   }
 }
 
-export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode = 'tasks' }: Options = {}) {
+export function useChat({
+  stream = cliClient.streamChat,
+  submitApproval = cliClient.submitApproval,
+  timeoutMs = 120_000,
+  mode = 'tasks',
+  autoDecide,
+}: Options = {}) {
   /** 对话历史：发请求时用（toWire） */
   const [messages, setMessages] = useState<ChatMessage[]>([])
   /** 已经定稿、交给 <Static> 的记录：只追加，不修改 */
@@ -104,6 +120,8 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
   const [usage, setUsage] = useState<UsageTotals | null>(null)
   /** 上一轮的用量，状态栏算缓存命中率用 */
   const [lastUsage, setLastUsage] = useState<UsageTotals | null>(null)
+  /** 被自动回答的那次审批。它不需要弹提示 */
+  const [autoApprovalId, setAutoApprovalId] = useState<string | null>(null)
 
   // 最新的状态放在 ref 里：每个事件都立刻算，但不一定立刻渲染（第 35 章）
   const turnRef = useRef<LiveTurn>(initialLiveTurn)
@@ -115,8 +133,16 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
   const messagesRef = useRef<ChatMessage[]>([])
   const idRef = useRef(0)
 
-  // 从发出请求到这一轮收尾（finally 里重置成 idle）都算忙。等审批（第 39 章）也算
+  // autoDecide 每次渲染都是新函数（它读的是 App 最新的权限模式），放进 ref，免得 send 跟着重建
+  const autoDecideRef = useRef(autoDecide)
+  useEffect(() => {
+    autoDecideRef.current = autoDecide
+  })
+
+  // 从发出请求到这一轮收尾（finally 里重置成 idle）都算忙。等审批也算
   const busy = turn.phase !== 'idle'
+  /** 需要用户回答的审批：有审批，而且不是正在被自动回答的那个 */
+  const approval = turn.approval && turn.approval.approvalId !== autoApprovalId ? turn.approval : null
 
   const nextId = useCallback(() => `e${++idRef.current}`, [])
 
@@ -168,6 +194,30 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
     [flush, schedule],
   )
 
+  /** 在对话里印一条提示（斜杠命令的输出）。只进 <Static>，不进历史，不会发给模型 */
+  const notify = useCallback(
+    (text: string, tone: 'info' | 'warn' | 'error' = 'info') => {
+      setEntries((prev) => [...prev, { kind: 'notice', id: nextId(), tone, text }])
+    },
+    [nextId],
+  )
+
+  /**
+   * 回答一次审批。成功后不用自己改状态：服务端会推 approval_resolved，状态机在那里收起提示。
+   * 失败（通常是 404：服务端那边已经超时 / 连接断了）时本地也收起，免得提示永远挂着。
+   */
+  const answer = useCallback(
+    async (target: PendingApproval, decision: ApprovalDecision, note: string) => {
+      try {
+        await submitApproval(target.approvalId, decision, note)
+      } catch (err) {
+        apply({ type: 'approval_resolved', approvalId: target.approvalId })
+        throw err
+      }
+    },
+    [submitApproval, apply],
+  )
+
   const send = useCallback(
     async (text: string) => {
       const trimmed = text.trim()
@@ -181,8 +231,17 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
 
       const controller = new AbortController()
       controllerRef.current = controller
-      // 用户中止 + 超时，任何一个触发都会取消 fetch（第 24、28 章）
-      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)])
+
+      // 空闲超时（第 30 章网页端同款）：每收到一个事件重新计时；等人审批时暂停。
+      // 以前是"整个请求最多 timeoutMs"，有了审批就不成立了：人可能要想一会儿，一轮里还可能审批好几次
+      const idle = new AbortController()
+      let idleTimer: ReturnType<typeof setTimeout> | undefined
+      const armIdle = () => {
+        clearTimeout(idleTimer)
+        idleTimer = setTimeout(() => idle.abort(new DOMException('等待响应超时', 'TimeoutError')), timeoutMs)
+      }
+      const signal = AbortSignal.any([controller.signal, idle.signal])
+      armIdle()
 
       segmentsRef.current = []
       cursorRef.current = 0
@@ -192,6 +251,7 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
 
       try {
         for await (const evt of stream(toWire(history), { signal, mode })) {
+          armIdle()
           switch (evt.type) {
             case 'delta':
               apply({ type: 'delta', text: evt.text })
@@ -209,6 +269,27 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
                 [evt.toolUseId]: appendOutput(outputsRef.current[evt.toolUseId] ?? '', evt.chunk),
               }
               schedule()
+              break
+            case 'approval_required': {
+              const pending = toPendingApproval(evt)
+              const auto = autoDecideRef.current?.(pending) ?? null
+              if (auto) {
+                // 自动回答：不弹提示，也不暂停计时；在对话里留一行记录
+                setAutoApprovalId(pending.approvalId)
+                apply({ type: 'approval_required', approval: pending })
+                notify(`↳ ${auto.reason}：${pending.reason ?? pending.name}`)
+                answer(pending, auto.decision, auto.note).catch((err: unknown) =>
+                  notify(`自动回答失败：${err instanceof Error ? err.message : String(err)}`, 'error'),
+                )
+              } else {
+                // 等人：暂停空闲计时，这段时间由服务端的审批超时负责
+                clearTimeout(idleTimer)
+                apply({ type: 'approval_required', approval: pending })
+              }
+              break
+            }
+            case 'approval_resolved':
+              apply({ type: 'approval_resolved', approvalId: evt.approvalId })
               break
             case 'context':
               setContext({
@@ -243,7 +324,7 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
             case 'error':
               apply({ type: 'error', message: evt.message })
               break
-            // 审批（第 39 章接上）、invalidate（终端没有缓存要刷新）暂时忽略
+            // invalidate：终端没有要刷新的缓存，忽略
           }
         }
         // parseSSE 发现 signal 已中止时会直接结束循环，不抛错 —— 这里补上
@@ -260,6 +341,7 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
           apply({ type: 'error', message: err instanceof Error ? err.message : '请求失败' })
         }
       } finally {
+        clearTimeout(idleTimer)
         controllerRef.current = null
         const finished = finalize(turnRef.current, timedOut)
         messagesRef.current = [...messagesRef.current, finished]
@@ -281,23 +363,37 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
         cursorRef.current = 0
         setTurn(initialLiveTurn)
         setLive(EMPTY_LIVE)
+        setAutoApprovalId(null)
         setMessages(messagesRef.current)
       }
     },
-    [stream, timeoutMs, mode, apply, flush, schedule, nextId],
+    [stream, timeoutMs, mode, apply, flush, schedule, nextId, notify, answer],
   )
 
-  const abort = useCallback(() => {
-    controllerRef.current?.abort()
-  }, [])
-
-  /** 在对话里印一条提示（斜杠命令的输出）。只进 <Static>，不进历史，不会发给模型 */
-  const notify = useCallback(
-    (text: string, tone: 'info' | 'warn' | 'error' = 'info') => {
-      setEntries((prev) => [...prev, { kind: 'notice', id: nextId(), tone, text }])
+  /** 用户在审批提示上做了决定 */
+  const decide = useCallback(
+    async (decision: ApprovalDecision, note = '') => {
+      const pending = turnRef.current.approval
+      if (!pending) return
+      await answer(pending, decision, note)
     },
-    [nextId],
+    [answer],
   )
+
+  /**
+   * 中止这一轮。如果正卡在审批上，先明确地拒绝，再断开连接（和第 30 章网页端的"停止"一样）：
+   * - 拒绝请求让服务端立刻停止等待，不依赖它多快发现连接断了
+   * - 断开连接保证就算拒绝请求丢了，服务端也会在 close 时清理掉这个审批
+   */
+  const abort = useCallback(() => {
+    const pending = turnRef.current.approval
+    if (pending) {
+      submitApproval(pending.approvalId, 'deny', '用户中止了这一轮').catch(() => {
+        /* 已经过期也无所谓，反正马上要断开了 */
+      })
+    }
+    controllerRef.current?.abort()
+  }, [submitApproval])
 
   /** 清屏时用：屏幕上的记录清掉，对话历史（发给模型的上下文）保留 */
   const clearEntries = useCallback(() => setEntries([]), [])
@@ -330,8 +426,10 @@ export function useChat({ stream = defaultStreamChat, timeoutMs = 120_000, mode 
     usage,
     lastUsage,
     busy,
+    approval,
     send,
     abort,
+    decide,
     notify,
     clearEntries,
     resetSession,

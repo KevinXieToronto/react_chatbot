@@ -9,6 +9,8 @@ function fakeContext(): CommandContext & { printed: string[] } {
     setMode: vi.fn(),
     clearScreen: vi.fn(),
     newSession: vi.fn(),
+    permissionMode: 'default',
+    setPermissionMode: vi.fn(),
     exit: vi.fn(),
     print: (text) => printed.push(text),
     usage: null,
@@ -40,6 +42,12 @@ describe('斜杠命令', () => {
     findCommand('mode')!.run(bad, 'root')
     expect(bad.setMode).not.toHaveBeenCalled()
     expect(bad.printed[0]).toContain('没有 root 这个模式')
+  })
+
+  it('/permissions：切换权限模式', () => {
+    const ctx = fakeContext()
+    findCommand('permissions')!.run(ctx, 'accept-edits')
+    expect(ctx.setPermissionMode).toHaveBeenCalledWith('acceptEdits')
   })
 
   it('/cost：累计用量和估算费用', () => {

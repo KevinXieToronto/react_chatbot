@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Box, Static, useApp, useInput, useStdout, useWindowSize } from 'ink'
-import type { ChatMode, StreamChat } from '@taskflow/agent-core'
+import type { ChatMode, StreamChat, SubmitApproval } from '@taskflow/agent-core'
 import { API_URL } from './api'
 import { useChat } from './useChat'
 import { useHistory } from './history'
 import { COMMANDS, completeCommand, findCommand, parseCommand, type CommandContext } from './commands'
 import { EMPTY, fromText, type EditState } from './input/editing'
+import { PERMISSION_LABELS, autoDecide, nextPermissionMode, type PermissionMode } from './permissions'
 import { liveItems, type Entry } from './transcript'
+import { ApprovalPrompt } from './components/ApprovalPrompt'
 import { BlockView, EntryView } from './components/EntryView'
 import { CommandHint } from './components/CommandHint'
 import { PromptInput } from './components/PromptInput'
@@ -16,6 +18,8 @@ import { ToolLine } from './components/ToolLine'
 interface Props {
   /** 测试时注入假的流；不传就用真正的 fetch */
   stream?: StreamChat
+  /** 测试时注入假的审批接口（第 39 章） */
+  submitApproval?: SubmitApproval
   timeoutMs?: number
   /** 启动时的模式，默认 tasks */
   initialMode?: ChatMode
@@ -29,14 +33,23 @@ const HEADER: Entry = { kind: 'header', id: 'header' }
 /** 清屏 + 清掉回滚区 + 光标回到左上角 */
 const CLEAR_TERMINAL = '\x1b[2J\x1b[3J\x1b[H'
 
-export function App({ stream, timeoutMs, initialMode = 'tasks', historyFile }: Props) {
+export function App({ stream, submitApproval, timeoutMs, initialMode = 'tasks', historyFile }: Props) {
   const { exit } = useApp()
   const { stdout } = useStdout()
   // 终端的宽高。用户拖动窗口大小时，这个 Hook 会让组件重新渲染
   const { columns, rows } = useWindowSize()
   const [mode, setMode] = useState<ChatMode>(initialMode)
-  const chat = useChat({ stream, timeoutMs, mode })
-  const { entries, turn, live, outputs, busy } = chat
+  // 第 39 章：客户端的权限模式，和"本会话总是允许"的工具
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>('default')
+  const [alwaysAllowed, setAlwaysAllowed] = useState<ReadonlySet<string>>(new Set())
+  const chat = useChat({
+    stream,
+    submitApproval,
+    timeoutMs,
+    mode,
+    autoDecide: (approval) => autoDecide(permissionMode, alwaysAllowed, approval),
+  })
+  const { entries, turn, live, outputs, busy, approval } = chat
   const [input, setInput] = useState<EditState>(EMPTY)
   const history = useHistory(historyFile)
   // 换一个 key，<Static> 就会重新挂载：从头开始画，Ink 也会丢掉它记着的旧静态输出
@@ -54,8 +67,11 @@ export function App({ stream, timeoutMs, initialMode = 'tasks', historyFile }: P
     clearScreen,
     newSession: () => {
       chat.resetSession()
+      setAlwaysAllowed(new Set())
       clearScreen()
     },
+    permissionMode,
+    setPermissionMode,
     exit: () => exit(),
     print: chat.notify,
     usage: chat.usage,
@@ -63,32 +79,46 @@ export function App({ stream, timeoutMs, initialMode = 'tasks', historyFile }: P
     context: chat.context,
   }
 
-  // 全局快捷键。PromptInput 会跳过 Esc、Tab、Ctrl+C、Ctrl+L，它们都在这里处理
-  useInput((char, key) => {
-    const ctrlC = key.ctrl && char === 'c'
-    if (busy) {
-      if (ctrlC || key.escape) chat.abort() // 忙：中止这一轮
-      return
-    }
-    if (key.ctrl && char === 'l') {
-      clearScreen()
-      return
-    }
-    if (key.tab && !key.shift) {
-      const completed = completeCommand(input.value)
-      if (completed) setInput(fromText(completed))
-      return
-    }
-    if (ctrlC || key.escape) {
-      // 和 shell 一样：输入框里有字就先清空；空着再按 Ctrl+C 才退出
-      if (input.value !== '') {
-        setInput(EMPTY)
-        history.reset()
-      } else if (ctrlC) {
-        exit()
+  function cyclePermissionMode() {
+    const next = nextPermissionMode(permissionMode)
+    setPermissionMode(next)
+    chat.notify(`权限模式：${PERMISSION_LABELS[next]}`)
+  }
+
+  // 全局快捷键。PromptInput 会跳过 Esc、Tab、Ctrl+C、Ctrl+L，它们都在这里处理。
+  // 审批提示出现时，按键全部交给 ApprovalPrompt（isActive: false）
+  useInput(
+    (char, key) => {
+      const ctrlC = key.ctrl && char === 'c'
+      if (key.tab && key.shift) {
+        cyclePermissionMode() // Shift+Tab：忙的时候也能切，下一次审批就按新模式来
+        return
       }
-    }
-  })
+      if (busy) {
+        if (ctrlC || key.escape) chat.abort() // 忙：中止这一轮
+        return
+      }
+      if (key.ctrl && char === 'l') {
+        clearScreen()
+        return
+      }
+      if (key.tab) {
+        const completed = completeCommand(input.value)
+        if (completed) setInput(fromText(completed))
+        return
+      }
+      if (ctrlC || key.escape) {
+        // 和 shell 一样：输入框里有字就先清空；空着再按 Ctrl+C 才退出
+        if (input.value !== '') {
+          setInput(EMPTY)
+          history.reset()
+        } else if (ctrlC) {
+          exit()
+        }
+      }
+    },
+    { isActive: approval === null },
+  )
 
   function handleSubmit(text: string) {
     if (!text.trim() || busy) return
@@ -139,27 +169,42 @@ export function App({ stream, timeoutMs, initialMode = 'tasks', historyFile }: P
           ),
         )}
 
-      <Box borderStyle="round" borderColor={busy ? 'gray' : 'cyan'} paddingX={1}>
-        <PromptInput
-          value={input}
-          onChange={setInput}
-          onSubmit={handleSubmit}
-          onHistoryPrev={() => {
-            const text = history.prev(input.value)
-            if (text !== null) setInput(fromText(text))
+      {/* 等审批时，输入框的位置换成审批提示 */}
+      {approval ? (
+        <ApprovalPrompt
+          key={approval.approvalId}
+          approval={approval}
+          maxDiffRows={Math.max(6, rows - 16)}
+          onAbort={chat.abort}
+          onDecide={async (decision, note, always) => {
+            if (always) setAlwaysAllowed((prev) => new Set(prev).add(approval.name))
+            await chat.decide(decision, note)
           }}
-          onHistoryNext={() => {
-            const text = history.next()
-            if (text !== null) setInput(fromText(text))
-          }}
-          focus={!busy}
-          placeholder={busy ? '等待回复中…' : '输入消息，Enter 发送，\\ + Enter 换行'}
         />
-      </Box>
+      ) : (
+        <Box borderStyle="round" borderColor={busy ? 'gray' : 'cyan'} paddingX={1}>
+          <PromptInput
+            value={input}
+            onChange={setInput}
+            onSubmit={handleSubmit}
+            onHistoryPrev={() => {
+              const text = history.prev(input.value)
+              if (text !== null) setInput(fromText(text))
+            }}
+            onHistoryNext={() => {
+              const text = history.next()
+              if (text !== null) setInput(fromText(text))
+            }}
+            focus={!busy}
+            placeholder={busy ? '等待回复中…' : '输入消息，Enter 发送，\\ + Enter 换行'}
+          />
+        </Box>
+      )}
       {!busy && input.value.startsWith('/') && <CommandHint text={input.value} />}
       <Box paddingX={1}>
         <StatusBar
           mode={mode}
+          permissionMode={permissionMode}
           turn={turn}
           busy={busy}
           count={chat.messages.length}
