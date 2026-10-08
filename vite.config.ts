@@ -95,9 +95,10 @@ export default defineConfig({
     // 每个测试文件跑之前先执行这个
     setupFiles: ['./src/test/setup.ts'],
     css: false, // 测试不需要处理 CSS，能快不少
-    // workspace/ 是给代码助手练手的独立小项目，它的测试用 node --test 跑，
-    // 不能被 Vitest 当成我们自己的测试收集进来（第 29 章）
-    exclude: [...configDefaults.exclude, 'workspace/**'],
+    // workspace/ 是给代码助手练手的独立小项目，它的测试用 node --test 跑（第 29 章）；
+    // cli/ 是独立的 Node 包，有自己的 vitest（第 35 章），放进 jsdom 里跑会失败。
+    // 两者都不能被这里的 Vitest 收集进来。
+    exclude: [...configDefaults.exclude, 'workspace/**', 'cli/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
