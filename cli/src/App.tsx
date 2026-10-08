@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { Box, Static, Text, useApp, useInput } from 'ink'
+import { Box, Static, Text, useApp, useInput, useWindowSize } from 'ink'
 import TextInput from 'ink-text-input'
-import type { ChatMessage, StreamChat } from '@taskflow/agent-core'
+import type { StreamChat } from '@taskflow/agent-core'
 import { API_URL } from './api'
 import { useChat } from './useChat'
-import { Header } from './components/Header'
-import { MessageItem } from './components/MessageItem'
+import { liveItems, type Entry } from './transcript'
+import { BlockView, EntryView } from './components/EntryView'
 import { StatusBar } from './components/StatusBar'
+import { ToolLine } from './components/ToolLine'
 
 interface Props {
   /** 测试时注入假的流；不传就用真正的 fetch */
@@ -14,14 +15,17 @@ interface Props {
   timeoutMs?: number
 }
 
-/** <Static> 的条目：第一条是标题栏，后面都是定稿的消息 */
-type StaticItem = { kind: 'header'; id: string } | { kind: 'message'; id: string; message: ChatMessage }
-
-const HEADER_ITEM: StaticItem = { kind: 'header', id: 'header' }
+/** 标题栏是 <Static> 的第一项，永远在最上面 */
+const HEADER: Entry = { kind: 'header', id: 'header' }
 
 export function App({ stream, timeoutMs }: Props) {
   const { exit } = useApp()
-  const { messages, turn, busy, send, abort } = useChat({ stream, timeoutMs })
+  // 终端的宽高。用户拖动窗口大小时，这个 Hook 会让组件重新渲染
+  const { columns, rows } = useWindowSize()
+  const { messages, entries, turn, live, outputs, context, usage, lastUsage, busy, send, abort } = useChat({
+    stream,
+    timeoutMs,
+  })
   const [input, setInput] = useState('')
 
   // 全局快捷键。ink-text-input 自己会忽略 Ctrl+C，所以两边不冲突
@@ -40,38 +44,32 @@ export function App({ stream, timeoutMs }: Props) {
     void send(value)
   }
 
-  const staticItems: StaticItem[] = [
-    HEADER_ITEM,
-    ...messages.map((m) => ({ kind: 'message' as const, id: m.id, message: m })),
-  ]
-
-  // 进行中的这一轮，临时拼成一条消息，好复用 MessageItem
-  const live: ChatMessage | null = busy
-    ? {
-        id: 'live',
-        role: 'assistant',
-        content: turn.text,
-        toolCalls: turn.toolCalls,
-        status: 'streaming',
-        createdAt: '',
-      }
-    : null
+  // 正在输出的代码块最多显示几行：给输入框、状态栏和别的内容留出 12 行。
+  // 动态区一旦比窗口还高，Ink 就只能整屏重画（第 35 章），会闪
+  const liveCodeLines = Math.max(3, rows - 12)
 
   return (
     <Box flexDirection="column">
-      {/* 写进去就不再重画：历史再长，每个 token 也只重画下面那一小块 */}
-      <Static items={staticItems}>
-        {(item) =>
-          item.kind === 'header' ? (
-            <Header key={item.id} apiUrl={API_URL} />
-          ) : (
-            <MessageItem key={item.id} message={item.message} />
-          )
-        }
+      {/* 写进去就不再重画。现在连"一条回复里写完的段落"也会一块块地进来 */}
+      <Static items={[HEADER, ...entries]}>
+        {(entry) => <EntryView key={entry.id} entry={entry} width={columns} apiUrl={API_URL} />}
       </Static>
 
-      {/* 以下是"动态区"：每次 setState 都会整块擦掉重画 */}
-      {live && <MessageItem message={live} />}
+      {/* 动态区：只剩还在跑的工具、还没写完的那一块 */}
+      {busy &&
+        liveItems(live.segments, live.cursor, turn.toolCalls).map((item) =>
+          item.kind === 'tool' ? (
+            <ToolLine key={item.key} call={item.call} output={outputs[item.call.id]} />
+          ) : (
+            <BlockView
+              key={item.key}
+              token={item.token}
+              lead={item.lead}
+              width={columns}
+              maxCodeLines={item.last ? liveCodeLines : undefined}
+            />
+          ),
+        )}
 
       <Box borderStyle="round" borderColor={busy ? 'gray' : 'cyan'} paddingX={1}>
         <Text color={busy ? 'gray' : 'cyan'}>❯ </Text>
@@ -84,7 +82,14 @@ export function App({ stream, timeoutMs }: Props) {
         />
       </Box>
       <Box paddingX={1}>
-        <StatusBar turn={turn} busy={busy} count={messages.length} />
+        <StatusBar
+          turn={turn}
+          busy={busy}
+          count={messages.length}
+          context={context}
+          usage={usage}
+          lastUsage={lastUsage}
+        />
       </Box>
     </Box>
   )
