@@ -12,6 +12,7 @@ export function sum(nums) {
 
 /** 平均值 */
 export function average(nums) {
+  if (nums.length === 0) return 0
   return sum(nums) / nums.length
 }
 

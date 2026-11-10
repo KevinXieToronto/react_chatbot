@@ -1,36 +1,52 @@
 {
   "tasks": [
     {
-      "id": "1",
-      "title": "写本周周报",
-      "description": "汇总本周进度，周五下班前发给主管",
-      "priority": "high",
-      "status": "doing",
-      "createdAt": "2026-09-15T01:20:00.000Z"
-    },
-    {
-      "id": "2",
-      "title": "修复登录页样式问题",
-      "description": "移动端下按钮溢出容器",
-      "priority": "medium",
-      "status": "todo",
-      "createdAt": "2026-09-16T06:00:00.000Z"
-    },
-    {
-      "id": "3",
-      "title": "整理会议纪要",
+      "id": "85d97f6d-3469-4395-8eaf-7732dc8baf20",
+      "title": "test1",
       "description": "",
-      "priority": "low",
-      "status": "done",
-      "createdAt": "2026-09-14T09:45:00.000Z"
+      "priority": "high",
+      "status": "todo",
+      "createdAt": "2026-10-08T00:45:52.179Z"
     },
     {
-      "id": "4",
-      "title": "调研 TanStack Query",
-      "description": "评估是否替换现有的手写请求逻辑",
-      "priority": "medium",
+      "id": "ac2cee7e-5b12-4b88-b5c9-3cd7b9204cce",
+      "title": "买咖啡豆",
+      "description": "",
+      "priority": "high",
       "status": "todo",
-      "createdAt": "2026-09-17T02:10:00.000Z"
+      "createdAt": "2026-10-07T01:28:18.252Z"
+    },
+    {
+      "id": "53603283-7087-4bef-85c6-28b4c0ddf03a",
+      "title": "Shopping",
+      "description": "",
+      "priority": "high",
+      "status": "todo",
+      "createdAt": "2026-10-07T01:28:11.264Z"
+    },
+    {
+      "id": "2fb6f48a-4b23-44c0-88e0-a26b1960fa1e",
+      "title": "买咖啡豆",
+      "description": "",
+      "priority": "medium",
+      "status": "done",
+      "createdAt": "2026-10-07T01:27:34.630Z"
+    },
+    {
+      "id": "2cb27c01-1097-47ec-ae64-dd1db24c2fdb",
+      "title": "test",
+      "description": "test 1234",
+      "priority": "high",
+      "status": "done",
+      "createdAt": "2026-10-07T01:22:12.345Z"
+    },
+    {
+      "id": "608198e8-c377-4439-8086-0c22f80efe98",
+      "title": "test/test123",
+      "description": "",
+      "priority": "medium",
+      "status": "done",
+      "createdAt": "2026-10-07T01:21:54.429Z"
     }
   ]
 }
