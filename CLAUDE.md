@@ -10,10 +10,13 @@ TaskFlow is a tutorial project for learning React: a single-page task manager bu
 
 ```bash
 npm run dev       # Vite dev server with HMR
+npm run server    # Express backend on 127.0.0.1:3001 (reads server/.env)
 npm run build     # tsc -b (type-check) then vite build -> dist/
 npm run lint      # oxlint (config: .oxlintrc.json)
 npm run preview   # serve the production build
 ```
+
+`npm run dev` needs the backend running too: start `npm run server` in a second terminal. Vite proxies `/api/*` to `http://localhost:3001`, removes the `/api` prefix and adds the `x-taskflow-token` header from `server/.env`. If the backend isn't running, Vite logs `http proxy error: /tasks ... ECONNREFUSED`. Both processes read the token only at startup, so restart both after changing `server/.env`.
 
 The project has no test runner. `npm run build` is the type-check gate: `tsc -b` checks `tsconfig.app.json` (src) and `tsconfig.node.json` (vite config).
 
