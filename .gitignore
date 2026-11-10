@@ -28,3 +28,6 @@ server/db.json
 
 # npm pack 打出来的包（第 40 章）
 *.tgz
+
+# 测试覆盖率报告（npm run coverage 生成）
+coverage/
